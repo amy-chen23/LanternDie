@@ -1,5 +1,4 @@
-import 'react-native-url-polyfill/auto';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,22 +15,10 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createClient, type Session } from '@supabase/supabase-js';
+import type { Session } from '@supabase/supabase-js';
 import { House, UserRound, UsersRound } from 'lucide-react-native';
-
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
-const supabase = supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: false,
-      },
-    })
-  : null;
+import { loadReports, submitReport, type Report } from './lib/reports';
+import { supabase } from './lib/supabase';
 
 const palette = {
   background: '#F5F5F5',
@@ -53,15 +40,22 @@ export default function App() {
   const [previewMode, setPreviewMode] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [screen, setScreen] = useState<Screen>('home');
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [reportsOwnerId, setReportsOwnerId] = useState<string | null>(null);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportError, setReportError] = useState('');
+  const [savingReport, setSavingReport] = useState(false);
+  const activeUserId = useRef<string | null>(null);
+  activeUserId.current = session?.user.id ?? null;
+  const visibleReports = reportsOwnerId === session?.user.id ? reports : [];
 
   useEffect(() => {
     if (!supabase) return;
 
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoadingSession(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data }) => setSession(data.session))
+      .finally(() => setLoadingSession(false));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
@@ -69,6 +63,36 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    setReports([]);
+    setReportsOwnerId(null);
+    if (session?.user.id) {
+      void refreshReports(session.user.id);
+    } else {
+      setReports([]);
+      setReportError('');
+    }
+  }, [session?.user.id]);
+
+  async function refreshReports(userId = session?.user.id) {
+    if (!userId) return;
+    setReportsLoading(true);
+    setReportError('');
+    try {
+      const nextReports = await loadReports(userId);
+      if (activeUserId.current === userId) {
+        setReports(nextReports);
+        setReportsOwnerId(userId);
+      }
+    } catch (error) {
+      if (activeUserId.current === userId) {
+        setReportError(error instanceof Error ? error.message : 'Could not load your reports.');
+      }
+    } finally {
+      if (activeUserId.current === userId) setReportsLoading(false);
+    }
+  }
 
   async function choosePhoto() {
     if (Platform.OS !== 'web') {
@@ -86,7 +110,22 @@ export default function App() {
       quality: 0.85,
     });
 
-    if (!result.canceled) setPhotoUri(result.assets[0].uri);
+    if (!result.canceled) setPhotoAsset(result.assets[0]);
+  }
+
+  async function saveReport() {
+    if (!session || !photoAsset || savingReport) return;
+    setSavingReport(true);
+    setReportError('');
+    try {
+      await submitReport(session.user.id, photoAsset);
+      setPhotoAsset(null);
+      await refreshReports(session.user.id);
+    } catch (error) {
+      setReportError(error instanceof Error ? error.message : 'Could not save your report.');
+    } finally {
+      setSavingReport(false);
+    }
   }
 
   async function signOut() {
@@ -94,7 +133,9 @@ export default function App() {
       await supabase.auth.signOut();
     }
     setPreviewMode(false);
-    setPhotoUri(null);
+    setPhotoAsset(null);
+    setReports([]);
+    setReportsOwnerId(null);
     setScreen('home');
   }
 
@@ -121,8 +162,14 @@ export default function App() {
             <HomeScreen
               email={session?.user.email ?? 'Preview account'}
               previewMode={previewMode}
-              photoUri={photoUri}
+              photoUri={photoAsset?.uri ?? null}
+              reports={visibleReports}
+              reportsLoading={reportsLoading}
+              reportError={reportError}
+              savingReport={savingReport}
               onChoosePhoto={choosePhoto}
+              onSubmitReport={saveReport}
+              onRefreshReports={() => void refreshReports()}
               onOpenProfile={() => setScreen('profile')}
             />
           ) : screen === 'community' ? (
@@ -131,6 +178,7 @@ export default function App() {
             <ProfileScreen
               email={session?.user.email ?? 'Preview account'}
               previewMode={previewMode}
+              submittedCount={visibleReports.length}
               onSignOut={signOut}
             />
           )}
@@ -266,13 +314,25 @@ function HomeScreen({
   email,
   previewMode,
   photoUri,
+  reports,
+  reportsLoading,
+  reportError,
+  savingReport,
   onChoosePhoto,
+  onSubmitReport,
+  onRefreshReports,
   onOpenProfile,
 }: {
   email: string;
   previewMode: boolean;
   photoUri: string | null;
+  reports: Report[];
+  reportsLoading: boolean;
+  reportError: string;
+  savingReport: boolean;
   onChoosePhoto: () => void;
+  onSubmitReport: () => void;
+  onRefreshReports: () => void;
   onOpenProfile: () => void;
 }) {
   return (
@@ -315,9 +375,9 @@ function HomeScreen({
 
       <View style={styles.statsRow}>
         <View style={styles.statBlock}>
-          <Text style={styles.statLabel}>VERIFIED KILLS</Text>
-          <Text style={styles.statValue}>0</Text>
-          <Text style={styles.statFoot}>accepted reports</Text>
+          <Text style={styles.statLabel}>SUBMITTED REPORTS</Text>
+          <Text style={styles.statValue}>{reports.length}</Text>
+          <Text style={styles.statFoot}>private field log</Text>
         </View>
         <View style={styles.statSeparator} />
         <View style={styles.statBlock}>
@@ -354,9 +414,24 @@ function HomeScreen({
       {photoUri ? (
         <View style={styles.selectedPhotoNotice}>
           <Text style={styles.selectedPhotoTitle}>PHOTO SELECTED</Text>
-          <Text style={styles.selectedPhotoCopy}>This preview stays on your device. Upload and verification are not connected yet.</Text>
+          <Text style={styles.selectedPhotoCopy}>
+            {previewMode ? 'This preview stays on your device.' : 'Review your photo, then submit it to your private field log.'}
+          </Text>
         </View>
       ) : null}
+      {photoUri && !previewMode ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={savingReport}
+          onPress={onSubmitReport}
+          style={[styles.primaryButton, savingReport && styles.disabled]}
+        >
+          {savingReport ? <ActivityIndicator color={palette.white} /> : (
+            <Text style={styles.primaryButtonText}>Submit report</Text>
+          )}
+        </Pressable>
+      ) : null}
+      {reportError ? <Text accessibilityRole="alert" style={styles.formMessage}>{reportError}</Text> : null}
 
       <View style={styles.privacyNote}>
         <Text style={styles.privacyGlyph}>i</Text>
@@ -370,11 +445,30 @@ function HomeScreen({
         </View>
         <Text style={styles.sectionIndex}>02 / 03</Text>
       </View>
-      <View style={styles.emptyActivity}>
-        <View style={styles.emptyActivityLine} />
-        <Text style={styles.emptyActivityTitle}>Nothing logged yet</Text>
-        <Text style={styles.emptyActivityCopy}>Your verified reports will appear here.</Text>
-      </View>
+      {!previewMode ? (
+        <Pressable accessibilityRole="button" onPress={onRefreshReports} style={styles.refreshButton}>
+          <Text style={styles.refreshText}>Refresh reports</Text>
+        </Pressable>
+      ) : null}
+      {reportsLoading ? <ActivityIndicator color={palette.red} /> : reports.length ? (
+        reports.map((report) => (
+          <View key={report.id} style={styles.reportRow}>
+            {report.photo_url ? (
+              <Image source={{ uri: report.photo_url }} style={styles.reportPhoto} />
+            ) : <View style={styles.reportPhoto} />}
+            <View>
+              <Text style={styles.emptyActivityTitle}>Report submitted</Text>
+              <Text style={styles.emptyActivityCopy}>{new Date(report.created_at).toLocaleDateString()}</Text>
+            </View>
+          </View>
+        ))
+      ) : (
+        <View style={styles.emptyActivity}>
+          <View style={styles.emptyActivityLine} />
+          <Text style={styles.emptyActivityTitle}>Nothing logged yet</Text>
+          <Text style={styles.emptyActivityCopy}>Your submitted reports will appear here.</Text>
+        </View>
+      )}
       <Text style={styles.homeFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
     </ScrollView>
   );
@@ -467,10 +561,12 @@ function BottomNavigation({
 function ProfileScreen({
   email,
   previewMode,
+  submittedCount,
   onSignOut,
 }: {
   email: string;
   previewMode: boolean;
+  submittedCount: number;
   onSignOut: () => void;
 }) {
   return (
@@ -489,6 +585,7 @@ function ProfileScreen({
 
       <Text style={styles.sectionEyebrow}>YOUR PROGRESS</Text>
       <View style={styles.profileStats}>
+        <ProfileStat label="SUBMITTED REPORTS" value={String(submittedCount)} />
         <ProfileStat label="STREAK" value="0 days" />
         <ProfileStat label="VERIFIED KILLS" value="0" />
         <ProfileStat label="FIELD POINTS" value="0" />
@@ -611,6 +708,10 @@ const styles = StyleSheet.create({
   emptyActivityLine: { width: 22, height: 2, backgroundColor: palette.red, marginBottom: 11 },
   emptyActivityTitle: { color: palette.ink, fontSize: 14, fontWeight: '700' },
   emptyActivityCopy: { color: palette.muted, fontSize: 11, marginTop: 4 },
+  refreshButton: { alignSelf: 'flex-start', marginBottom: 12, paddingVertical: 6 },
+  refreshText: { color: palette.red, fontSize: 11, fontWeight: '700' },
+  reportRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: palette.paper, borderBottomWidth: 1, borderBottomColor: palette.line, padding: 10 },
+  reportPhoto: { width: 64, height: 56, backgroundColor: palette.line },
   homeFooter: { color: '#93988F', fontSize: 8, fontWeight: '700', letterSpacing: 1.1, textAlign: 'center', marginTop: 25 },
   communityHeader: { paddingTop: 8, paddingBottom: 27 },
   communityTitle: { color: palette.ink, fontSize: 32, lineHeight: 38, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 13 },
