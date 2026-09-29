@@ -71,10 +71,12 @@ export default function App() {
   }, []);
 
   async function choosePhoto() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Photo access needed', 'Allow photo-library access to choose a lanternfly image.');
-      return;
+    if (Platform.OS !== 'web') {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Photo access needed', 'Allow photo-library access to choose a lanternfly image.');
+        return;
+      }
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({

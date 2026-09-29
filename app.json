@@ -5,6 +5,10 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
     "splash": {
       "backgroundColor": "#f4f2e8"
     },
@@ -18,9 +22,6 @@
       "permissions": [
         "READ_MEDIA_IMAGES"
       ]
-    },
-    "plugins": [
-      "expo-status-bar"
-    ]
+    }
   }
 }
