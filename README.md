@@ -48,14 +48,15 @@ mode does not create an account or persist data.
 
 ## Email authentication
 
-1. Create a Supabase Free project. Enable email/password authentication and
-	disable **Confirm Email** for immediate public sign-up without an email
-	sender. Addresses are unverified, and password reset by email will not work.
+1. Use the shared **LanternDie** Supabase Free project (its private report
+	schema is already applied). Enable email/password authentication and disable
+	**Confirm Email** for immediate sign-up without an email sender. Addresses
+	are unverified, and password reset by email will not work.
 2. Copy `.env.example` to `.env` and set `EXPO_PUBLIC_SUPABASE_URL` and
 	`EXPO_PUBLIC_SUPABASE_ANON_KEY` using the project's public client key. Do not
-	put a service-role key in the app or Cloudflare settings.
-3. Apply the private report schema in `supabase/migrations`; see
-	`supabase/README.md`.
+	put a service-role key in the app or Vercel settings.
+3. For a new project only, apply the private report schema in
+	`supabase/migrations`; see `supabase/README.md`.
 4. Restart Expo after changing environment variables.
 
 Supabase sessions are persisted locally with AsyncStorage. Report photos are
@@ -64,16 +65,18 @@ own reports. Each submitted image is converted to JPEG and limited to 5 MB.
 
 ## Free website preview
 
-1. Connect this GitHub repository to a **Cloudflare Pages** project. Enable
-	preview builds for branches and pull requests. The final feature branch is
-	`deploy/05-preview`; do not merge the stacked PRs into `main` for testing.
-2. Set the build command to `npm run build:web` and the output directory to
-	`dist`. The repository's `.node-version` pins Node.js 22.16.0.
-3. Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` as
-	Cloudflare Pages build variables for preview deployments. These are public
-	client values embedded into the web bundle, not secrets.
-4. Open the Pages preview URL posted on the final PR. Cloudflare maintains a
-	branch alias that updates when new commits land on that branch.
+1. In **Vercel**, import this GitHub repository and deploy the
+	`deploy/05-preview` branch as a Preview deployment. If the GitHub
+	organization does not allow Vercel access, run `vercel` from this branch
+	instead. Do not merge the stacked PRs into `main` for testing.
+2. Use the repository's `vercel.json`: it exports the Expo web app into `dist`
+	and rewrites browser routes to the single-page app. The `.node-version`
+	pins Node.js 22.16.0.
+3. Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` in the
+	Vercel **Preview** environment, then redeploy. These public client values
+	are embedded into the web bundle; never use a service-role key.
+4. Open the Vercel Preview URL from the deployment or final PR. Each new
+	feature-branch deployment gets a preview URL without changing `main`.
 
 You can check the production web bundle locally with `npm run build:web`.
 The Supabase Free project may pause after low activity; its owner can resume
