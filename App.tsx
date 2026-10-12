@@ -15,10 +15,14 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
 import { House, UserRound, UsersRound } from 'lucide-react-native';
 import { loadReports, submitReport, type Report } from './lib/reports';
 import { supabase } from './lib/supabase';
+
+WebBrowser.maybeCompleteAuthSession();
 
 const palette = {
   background: '#F5F5F5',
@@ -223,6 +227,61 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
     }
   }
 
+  async function signInWithGoogle() {
+    setMessage('');
+    if (!supabase) {
+      setMessage('Add your Supabase URL and anon key to .env to sign in.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      if (Platform.OS === 'web') {
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: { redirectTo: window.location.origin },
+        });
+        if (error) throw error;
+        return;
+      }
+
+      const redirectTo = Linking.createURL('auth/callback', { scheme: 'lanterndie' });
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo, skipBrowserRedirect: true },
+      });
+      if (error) throw error;
+      if (!data.url) throw new Error('Could not start Google sign-in.');
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      if (result.type !== 'success') return;
+      if (result.url !== redirectTo && !result.url.startsWith(`${redirectTo}?`)
+        && !result.url.startsWith(`${redirectTo}#`)) {
+        throw new Error('Unexpected sign-in redirect.');
+      }
+
+      const callback = new URL(result.url);
+      const params = new URLSearchParams(callback.hash.slice(1));
+      const oauthError = params.get('error_description') ?? params.get('error')
+        ?? callback.searchParams.get('error_description') ?? callback.searchParams.get('error');
+      if (oauthError) throw new Error(oauthError);
+
+      const accessToken = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+      if (!accessToken || !refreshToken) throw new Error('Google sign-in did not return a session.');
+
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+      if (sessionError) throw sessionError;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Google sign-in failed. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
@@ -294,6 +353,16 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
               )}
             </Pressable>
 
+            <View style={styles.oauthDivider}><Text style={styles.oauthDividerText}>OR</Text></View>
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={signInWithGoogle}
+              style={({ pressed }) => [styles.oauthButton, pressed && styles.pressed, busy && styles.disabled]}
+            >
+              <Text style={styles.oauthButtonText}>Continue with Google</Text>
+            </Pressable>
+
             {!hasAuthConfig ? (
               <View style={styles.previewBlock}>
                 <Text style={styles.previewNote}>Backend credentials are not set up yet.</Text>
@@ -303,7 +372,7 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
               </View>
             ) : null}
           </View>
-          <Text style={styles.authFooter}>EMAIL ONLY  /  NO SOCIAL SIGN-IN</Text>
+          <Text style={styles.authFooter}>YOUR FIELD LOG STARTS HERE</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -652,6 +721,10 @@ const styles = StyleSheet.create({
   formMessage: { color: '#B4232A', fontSize: 12, lineHeight: 18, marginTop: 12 },
   primaryButton: { minHeight: 50, backgroundColor: palette.red, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
   primaryButtonText: { color: palette.white, fontWeight: '700', fontSize: 14 },
+  oauthDivider: { alignItems: 'center', marginTop: 18, marginBottom: 14 },
+  oauthDividerText: { color: palette.muted, fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
+  oauthButton: { minHeight: 50, borderWidth: 1, borderColor: palette.ink, alignItems: 'center', justifyContent: 'center' },
+  oauthButtonText: { color: palette.ink, fontWeight: '700', fontSize: 14 },
   pressed: { opacity: 0.82 },
   disabled: { opacity: 0.65 },
   previewBlock: { borderTopWidth: 1, borderTopColor: palette.line, marginTop: 18, paddingTop: 14, alignItems: 'center' },

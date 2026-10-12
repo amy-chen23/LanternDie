@@ -2,8 +2,9 @@
 
 LanternDie is an Expo app for submitting private spotted lanternfly photo
 reports. A signed-in user's reports and photos sync between the website and
-Expo Go. Community rankings, verification, points, and streaks are still
-placeholders.
+Expo Go. Email/password sign-in works in Expo Go and on the website. Google
+sign-in works in a native build and on the website.
+Community rankings, verification, points, and streaks are still placeholders.
 
 ## Public repository mirror
 
@@ -98,6 +99,37 @@ own reports. Each submitted image is converted to JPEG and limited to 5 MB.
 You can check the production web bundle locally with `npm run build:web`.
 The Supabase Free project may pause after low activity; its owner can resume
 it in the Supabase dashboard.
+
+## Google sign-in
+
+1. In Google Cloud, create an OAuth **Web application** client. Set its
+   authorized redirect URI to the Supabase callback URL shown under
+   **Authentication → Providers → Google** in your Supabase dashboard:
+   `https://<project-ref>.supabase.co/auth/v1/callback`.
+2. Enable the Google provider in Supabase and enter that client's ID and
+   secret there. Keep the secret in Google Cloud and Supabase; it is never an
+   Expo environment variable.
+3. Under **Authentication → URL Configuration**, add
+   `lanterndie://auth/callback`, the website URL, and any local web development
+   URL to the redirect allow list. Keep the existing site URL as configured for
+   email auth.
+4. Set the public Supabase URL and anon key in `.env` as above, then restart
+   Expo. The same remote Supabase project can serve a locally running app.
+
+### Test locally without deployment
+
+OAuth redirects need the `lanterndie` URL scheme registered on the device.
+Expo Go cannot test this redirect. Use an iOS simulator with Xcode and
+`npx expo run:ios`, or an Android emulator with Android Studio and
+`npx expo run:android`. After the native app launches, tap **Continue with
+Google**, complete consent, and confirm you return to the field log. Sign out,
+then sign in again and restart the app to check session persistence. Cancel the
+browser once to confirm you remain on the sign-in screen. Email/password and
+preview mode can still be tested in Expo Go.
+
+The Google OAuth client redirects to Supabase first; Supabase then redirects
+to `lanterndie://auth/callback`. A hosted app or GitHub deployment is not
+needed for this local test.
 
 ## Current scope
 

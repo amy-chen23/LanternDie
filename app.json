@@ -2,6 +2,7 @@
   "expo": {
     "name": "LanternDie",
     "slug": "lanterndie",
+    "scheme": "lanterndie",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -22,6 +23,9 @@
       "permissions": [
         "READ_MEDIA_IMAGES"
       ]
-    }
+    },
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }
