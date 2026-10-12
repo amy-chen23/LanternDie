@@ -6,21 +6,19 @@ personal progress, a profile view, and a local photo picker.
 
 ## Public repository mirror
 
-The [mirror workflow](.github/workflows/mirror-public.yml) copies every branch
-and tag from this repository to
+The [mirror workflow](.github/workflows/mirror-public.yml) copies commits from
+this repository's `main` branch to the public `main` branch in
 [`amy-chen23/LanternDie`](https://github.com/amy-chen23/LanternDie). It runs on
-pushes, can be started manually from Actions, and runs daily to catch changes
-to older branches that do not contain the workflow yet. Branches and tags
-removed from this repository are removed from the public mirror too. Changes
-made directly in the public repository may be overwritten.
+pushes to `main`, can be started manually from Actions, and retries daily.
+It leaves other branches and tags alone. Direct changes to public `main` may
+be overwritten by the next mirror run.
 
 To enable it, create a fine-grained personal access token scoped to the public
 repository with **Contents: Read and write** and **Workflows: Read and write**
 permissions. Save it as an Actions repository secret named `PUBLIC_REPO_TOKEN`
-in this source repository. Then merge the workflow into the source default
-branch and run **Mirror to public repository** from its Actions tab once to
-seed the public repository. Keep credentials and private data out of all source
-branches and commit history before enabling the mirror.
+in this source repository. Then run **Mirror to public repository** from its
+Actions tab once to seed public `main`. Keep credentials and private data out
+of the source `main` history before enabling the mirror.
 
 ## Run locally
 
