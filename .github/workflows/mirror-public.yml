@@ -3,12 +3,9 @@ name: Mirror to public repository
 on:
   push:
     branches:
-      - '**'
-    tags:
-      - '**'
+      - main
   workflow_dispatch:
-  # Existing branches do not yet contain this workflow. The scheduled run
-  # keeps them in sync until they are updated from the default branch.
+  # Retry after missed runs or credential changes.
   schedule:
     - cron: '17 3 * * *'
 
@@ -29,7 +26,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Mirror branches and tags
+      - name: Mirror main
         env:
           PUBLIC_REPO_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
         run: |
@@ -51,10 +48,5 @@ jobs:
           chmod 700 "$askpass"
           export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
 
-          # origin/HEAD is a local symbolic ref, not a source branch.
-          if git symbolic-ref -q refs/remotes/origin/HEAD >/dev/null; then
-            git symbolic-ref --delete refs/remotes/origin/HEAD
-          fi
-          git push --prune https://github.com/amy-chen23/LanternDie.git \
-            '+refs/remotes/origin/*:refs/heads/*' \
-            '+refs/tags/*:refs/tags/*'
+          git push https://github.com/amy-chen23/LanternDie.git \
+            '+refs/remotes/origin/main:refs/heads/main'
