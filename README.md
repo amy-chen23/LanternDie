@@ -4,6 +4,24 @@ LanternDie is an Expo React Native starter for tracking spotted lanternfly
 reports. The current skeleton includes email/password authentication,
 personal progress, a profile view, and a local photo picker.
 
+## Public repository mirror
+
+The [mirror workflow](.github/workflows/mirror-public.yml) copies every branch
+and tag from this repository to
+[`amy-chen23/LanternDie`](https://github.com/amy-chen23/LanternDie). It runs on
+pushes, can be started manually from Actions, and runs daily to catch changes
+to older branches that do not contain the workflow yet. Branches and tags
+removed from this repository are removed from the public mirror too. Changes
+made directly in the public repository may be overwritten.
+
+To enable it, create a fine-grained personal access token scoped to the public
+repository with **Contents: Read and write** and **Workflows: Read and write**
+permissions. Save it as an Actions repository secret named `PUBLIC_REPO_TOKEN`
+in this source repository. Then merge the workflow into the source default
+branch and run **Mirror to public repository** from its Actions tab once to
+seed the public repository. Keep credentials and private data out of all source
+branches and commit history before enabling the mirror.
+
 ## Run locally
 
 ### First-time setup

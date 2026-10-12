@@ -1,0 +1,60 @@
+name: Mirror to public repository
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+  workflow_dispatch:
+  # Existing branches do not yet contain this workflow. The scheduled run
+  # keeps them in sync until they are updated from the default branch.
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-repository-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.repository == 'uva-cs4971-f26/blue-12'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Mirror branches and tags
+        env:
+          PUBLIC_REPO_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "$PUBLIC_REPO_TOKEN" ]; then
+            echo 'Set PUBLIC_REPO_TOKEN in the source repository Actions secrets.' >&2
+            exit 1
+          fi
+
+          # Keep the token out of the remote URL and command output.
+          askpass="$RUNNER_TEMP/public-mirror-askpass.sh"
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' x-access-token ;;
+            *Password*) printf '%s\n' "$PUBLIC_REPO_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
+
+          # origin/HEAD is a local symbolic ref, not a source branch.
+          if git symbolic-ref -q refs/remotes/origin/HEAD >/dev/null; then
+            git symbolic-ref --delete refs/remotes/origin/HEAD
+          fi
+          git push --prune https://github.com/amy-chen23/LanternDie.git \
+            '+refs/remotes/origin/*:refs/heads/*' \
+            '+refs/tags/*:refs/tags/*'
