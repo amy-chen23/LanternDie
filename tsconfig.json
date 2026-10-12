@@ -3,5 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "types": ["node"]
-  }
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "dist", "web-build", ".expo", "ios", "android"]
 }
