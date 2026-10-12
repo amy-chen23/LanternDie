@@ -1,0 +1,52 @@
+name: Mirror to public repository
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  # Retry after missed runs or credential changes.
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-repository-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.repository == 'uva-cs4971-f26/blue-12'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Mirror main
+        env:
+          PUBLIC_REPO_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "$PUBLIC_REPO_TOKEN" ]; then
+            echo 'Set PUBLIC_REPO_TOKEN in the source repository Actions secrets.' >&2
+            exit 1
+          fi
+
+          # Keep the token out of the remote URL and command output.
+          askpass="$RUNNER_TEMP/public-mirror-askpass.sh"
+          cat > "$askpass" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' x-access-token ;;
+            *Password*) printf '%s\n' "$PUBLIC_REPO_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
+
+          git push https://github.com/amy-chen23/LanternDie.git \
+            '+refs/remotes/origin/main:refs/heads/main'
