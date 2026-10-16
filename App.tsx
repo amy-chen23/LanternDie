@@ -20,6 +20,7 @@ import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
 import { House, UserRound, UsersRound } from 'lucide-react-native';
 import { loadReports, submitReport, type Report } from './lib/reports';
+import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { supabase } from './lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -50,9 +51,14 @@ export default function App() {
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportError, setReportError] = useState('');
   const [savingReport, setSavingReport] = useState(false);
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [profilePhotoOwnerId, setProfilePhotoOwnerId] = useState<string | null>(null);
+  const [profilePhotoError, setProfilePhotoError] = useState('');
+  const [savingProfilePhoto, setSavingProfilePhoto] = useState(false);
   const activeUserId = useRef<string | null>(null);
   activeUserId.current = session?.user.id ?? null;
   const visibleReports = reportsOwnerId === session?.user.id ? reports : [];
+  const visibleProfilePhoto = profilePhotoOwnerId === session?.user.id ? profilePhotoUrl : null;
 
   useEffect(() => {
     if (!supabase) return;
@@ -77,6 +83,27 @@ export default function App() {
       setReports([]);
       setReportError('');
     }
+  }, [session?.user.id]);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    setProfilePhotoUrl(null);
+    setProfilePhotoOwnerId(null);
+    setProfilePhotoError('');
+    if (!userId) return;
+
+    loadProfilePhoto(userId)
+      .then((url) => {
+        if (activeUserId.current === userId) {
+          setProfilePhotoUrl(url);
+          setProfilePhotoOwnerId(userId);
+        }
+      })
+      .catch((error) => {
+        if (activeUserId.current === userId) {
+          setProfilePhotoError(error instanceof Error ? error.message : 'Could not load your profile photo.');
+        }
+      });
   }, [session?.user.id]);
 
   async function refreshReports(userId = session?.user.id) {
@@ -132,6 +159,42 @@ export default function App() {
     }
   }
 
+  async function chooseProfilePhoto() {
+    if (!session || savingProfilePhoto) return;
+    const userId = session.user.id;
+    setProfilePhotoError('');
+    try {
+      if (Platform.OS !== 'web') {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          setProfilePhotoError('Allow photo-library access to choose a profile picture.');
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (result.canceled || !result.assets[0]) return;
+
+      setSavingProfilePhoto(true);
+      const url = await saveProfilePhoto(userId, result.assets[0]);
+      if (activeUserId.current === userId) {
+        setProfilePhotoUrl(url);
+        setProfilePhotoOwnerId(userId);
+      }
+    } catch (error) {
+      if (activeUserId.current === userId) {
+        setProfilePhotoError(error instanceof Error ? error.message : 'Could not save your profile picture.');
+      }
+    } finally {
+      setSavingProfilePhoto(false);
+    }
+  }
+
   async function signOut() {
     if (supabase && session) {
       await supabase.auth.signOut();
@@ -140,6 +203,9 @@ export default function App() {
     setPhotoAsset(null);
     setReports([]);
     setReportsOwnerId(null);
+    setProfilePhotoUrl(null);
+    setProfilePhotoOwnerId(null);
+    setProfilePhotoError('');
     setScreen('home');
   }
 
@@ -165,6 +231,7 @@ export default function App() {
           {screen === 'home' ? (
             <HomeScreen
               email={session?.user.email ?? 'Preview account'}
+              profilePhotoUrl={visibleProfilePhoto}
               previewMode={previewMode}
               photoUri={photoAsset?.uri ?? null}
               reports={visibleReports}
@@ -181,6 +248,10 @@ export default function App() {
           ) : (
             <ProfileScreen
               email={session?.user.email ?? 'Preview account'}
+              profilePhotoUrl={visibleProfilePhoto}
+              profilePhotoError={profilePhotoError}
+              savingProfilePhoto={savingProfilePhoto}
+              onChooseProfilePhoto={chooseProfilePhoto}
               previewMode={previewMode}
               submittedCount={visibleReports.length}
               onSignOut={signOut}
@@ -381,6 +452,7 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
 
 function HomeScreen({
   email,
+  profilePhotoUrl,
   previewMode,
   photoUri,
   reports,
@@ -393,6 +465,7 @@ function HomeScreen({
   onOpenProfile,
 }: {
   email: string;
+  profilePhotoUrl: string | null;
   previewMode: boolean;
   photoUri: string | null;
   reports: Report[];
@@ -412,7 +485,9 @@ function HomeScreen({
           <Text style={styles.greeting}>Good to see you.</Text>
         </View>
         <Pressable accessibilityLabel="Open profile" onPress={onOpenProfile} style={styles.avatarButton}>
-          <Text style={styles.avatarText}>{email.slice(0, 1).toUpperCase()}</Text>
+          {profilePhotoUrl ? <Image source={{ uri: profilePhotoUrl }} style={styles.homeAvatarImage} /> : (
+            <Text style={styles.avatarText}>{email.slice(0, 1).toUpperCase()}</Text>
+          )}
         </Pressable>
       </View>
 
@@ -629,11 +704,19 @@ function BottomNavigation({
 
 function ProfileScreen({
   email,
+  profilePhotoUrl,
+  profilePhotoError,
+  savingProfilePhoto,
+  onChooseProfilePhoto,
   previewMode,
   submittedCount,
   onSignOut,
 }: {
   email: string;
+  profilePhotoUrl: string | null;
+  profilePhotoError: string;
+  savingProfilePhoto: boolean;
+  onChooseProfilePhoto: () => void;
   previewMode: boolean;
   submittedCount: number;
   onSignOut: () => void;
@@ -645,12 +728,29 @@ function ProfileScreen({
       </View>
       <Text style={styles.profileTitle}>Profile</Text>
       <View style={styles.profileIdentity}>
-        <View style={styles.profileAvatar}><Text style={styles.profileAvatarText}>{email.slice(0, 1).toUpperCase()}</Text></View>
+        <View style={styles.profileAvatar}>
+          {profilePhotoUrl ? <Image source={{ uri: profilePhotoUrl }} style={styles.profileAvatarImage} /> : (
+            <Text style={styles.profileAvatarText}>{email.slice(0, 1).toUpperCase()}</Text>
+          )}
+        </View>
         <View style={styles.profileIdentityCopy}>
           <Text style={styles.profileEmail}>{email}</Text>
           <Text style={styles.profileMode}>{previewMode ? 'PREVIEW ACCOUNT' : 'EMAIL ACCOUNT'}</Text>
         </View>
       </View>
+
+      <Pressable
+        accessibilityRole="button"
+        disabled={previewMode || savingProfilePhoto}
+        onPress={onChooseProfilePhoto}
+        style={({ pressed }) => [styles.profilePhotoButton, pressed && styles.pressed, (previewMode || savingProfilePhoto) && styles.disabled]}
+      >
+        {savingProfilePhoto ? <ActivityIndicator color={palette.red} /> : (
+          <Text style={styles.profilePhotoButtonText}>{profilePhotoUrl ? 'Change profile picture' : 'Add profile picture'}</Text>
+        )}
+      </Pressable>
+      {previewMode ? <Text style={styles.profilePhotoHint}>Sign in to save a profile picture.</Text> : null}
+      {profilePhotoError ? <Text accessibilityRole="alert" style={styles.formMessage}>{profilePhotoError}</Text> : null}
 
       <Text style={styles.sectionEyebrow}>YOUR PROGRESS</Text>
       <View style={styles.profileStats}>
@@ -735,7 +835,8 @@ const styles = StyleSheet.create({
   pageContent: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 34 },
   homeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 },
   greeting: { color: palette.ink, fontSize: 26, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 5 },
-  avatarButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.red },
+  avatarButton: { width: 42, height: 42, borderRadius: 21, overflow: 'hidden', backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.red },
+  homeAvatarImage: { width: 40, height: 40 },
   avatarText: { color: palette.red, fontSize: 15, fontWeight: '800' },
   previewBanner: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, backgroundColor: palette.paleRed, borderLeftWidth: 3, borderLeftColor: palette.red, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 14 },
   previewBannerText: { color: palette.red, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
@@ -799,9 +900,13 @@ const styles = StyleSheet.create({
   leaderboardTitle: { color: palette.ink, fontSize: 12, fontWeight: '700' },
   profileHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 22 },
   profileTitle: { color: palette.ink, fontSize: 34, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginBottom: 22 },
-  profileIdentity: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 18, borderTopWidth: 1, borderBottomWidth: 1, borderColor: palette.line, marginBottom: 28 },
-  profileAvatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center' },
+  profileIdentity: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 18, borderTopWidth: 1, borderBottomWidth: 1, borderColor: palette.line },
+  profileAvatar: { width: 52, height: 52, borderRadius: 26, overflow: 'hidden', backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center' },
+  profileAvatarImage: { width: 52, height: 52 },
   profileAvatarText: { color: palette.red, fontSize: 19, fontWeight: '700' },
+  profilePhotoButton: { minHeight: 46, borderWidth: 1, borderColor: palette.red, alignItems: 'center', justifyContent: 'center', marginTop: 14, marginBottom: 28 },
+  profilePhotoButtonText: { color: palette.red, fontSize: 13, fontWeight: '700' },
+  profilePhotoHint: { color: palette.muted, fontSize: 11, marginTop: -20, marginBottom: 28 },
   profileIdentityCopy: { flex: 1 },
   profileEmail: { color: palette.ink, fontSize: 14, fontWeight: '700' },
   profileMode: { color: palette.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1.1, marginTop: 5 },
