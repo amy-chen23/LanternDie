@@ -39,6 +39,19 @@ const palette = {
 type Screen = 'home' | 'community' | 'profile';
 type AuthMode = 'sign-in' | 'sign-up';
 
+function getDisplayName(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : 'Field member';
+}
+
+function displayNameError(value: string): string | null {
+  const name = value.trim();
+  if (name.length < 2 || name.length > 30) return 'Use 2 to 30 characters for your display name.';
+  if (name.includes('@') || /[\r\n\t\x00-\x1f\x7f]/.test(name)) {
+    return 'Do not use an email address or control characters in your display name.';
+  }
+  return null;
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
@@ -53,6 +66,9 @@ export default function App() {
   const activeUserId = useRef<string | null>(null);
   activeUserId.current = session?.user.id ?? null;
   const visibleReports = reportsOwnerId === session?.user.id ? reports : [];
+  const displayName = getDisplayName(session?.user.user_metadata?.display_name);
+  const savedDisplayName = typeof session?.user.user_metadata?.display_name === 'string'
+    ? session.user.user_metadata.display_name.trim() : '';
 
   useEffect(() => {
     if (!supabase) return;
@@ -143,6 +159,15 @@ export default function App() {
     setScreen('home');
   }
 
+  async function saveDisplayName(name: string) {
+    if (!supabase || !session) throw new Error('Sign in to save your display name.');
+    const { data, error } = await supabase.auth.updateUser({ data: { display_name: name } });
+    if (error) throw error;
+    if (data.user) {
+      setSession(current => current?.user.id === data.user.id ? { ...current, user: data.user } : current);
+    }
+  }
+
   if (loadingSession) {
     return (
       <SafeAreaView style={styles.loadingScreen}>
@@ -164,7 +189,7 @@ export default function App() {
         <View style={styles.screenContainer}>
           {screen === 'home' ? (
             <HomeScreen
-              email={session?.user.email ?? 'Preview account'}
+              displayName={displayName}
               previewMode={previewMode}
               photoUri={photoAsset?.uri ?? null}
               reports={visibleReports}
@@ -181,8 +206,11 @@ export default function App() {
           ) : (
             <ProfileScreen
               email={session?.user.email ?? 'Preview account'}
+              displayName={displayName}
+              savedDisplayName={savedDisplayName}
               previewMode={previewMode}
               submittedCount={visibleReports.length}
+              onSaveDisplayName={saveDisplayName}
               onSignOut={signOut}
             />
           )}
@@ -197,6 +225,7 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
   const [mode, setMode] = useState<AuthMode>('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const hasAuthConfig = Boolean(supabase);
@@ -208,6 +237,13 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
       setMessage('Enter your email and password to continue.');
       return;
     }
+    if (mode === 'sign-up') {
+      const error = displayNameError(displayName);
+      if (error) {
+        setMessage(error);
+        return;
+      }
+    }
     if (!supabase) {
       setMessage('Add your Supabase URL and anon key to .env to create an account.');
       return;
@@ -215,7 +251,11 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
 
     setBusy(true);
     const result = mode === 'sign-up'
-      ? await supabase.auth.signUp({ email: normalizedEmail, password })
+      ? await supabase.auth.signUp({
+          email: normalizedEmail,
+          password,
+          options: { data: { display_name: displayName.trim() } },
+        })
       : await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
     setBusy(false);
 
@@ -329,6 +369,22 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
               style={styles.input}
               value={email}
             />
+            {mode === 'sign-up' ? (
+              <>
+                <Text style={styles.inputLabel}>PUBLIC DISPLAY NAME</Text>
+                <TextInput
+                  accessibilityLabel="Public display name"
+                  autoCapitalize="words"
+                  maxLength={30}
+                  onChangeText={setDisplayName}
+                  placeholder="Choose a name"
+                  placeholderTextColor="#9AA098"
+                  style={styles.input}
+                  value={displayName}
+                />
+                <Text style={styles.inputHint}>This is the name people will see when community features are available. Do not use your email.</Text>
+              </>
+            ) : null}
             <Text style={styles.inputLabel}>PASSWORD</Text>
             <TextInput
               autoCapitalize="none"
@@ -380,7 +436,7 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
 }
 
 function HomeScreen({
-  email,
+  displayName,
   previewMode,
   photoUri,
   reports,
@@ -392,7 +448,7 @@ function HomeScreen({
   onRefreshReports,
   onOpenProfile,
 }: {
-  email: string;
+  displayName: string;
   previewMode: boolean;
   photoUri: string | null;
   reports: Report[];
@@ -412,7 +468,7 @@ function HomeScreen({
           <Text style={styles.greeting}>Good to see you.</Text>
         </View>
         <Pressable accessibilityLabel="Open profile" onPress={onOpenProfile} style={styles.avatarButton}>
-          <Text style={styles.avatarText}>{email.slice(0, 1).toUpperCase()}</Text>
+          <Text style={styles.avatarText}>{displayName.slice(0, 1).toUpperCase()}</Text>
         </Pressable>
       </View>
 
@@ -629,15 +685,47 @@ function BottomNavigation({
 
 function ProfileScreen({
   email,
+  displayName,
+  savedDisplayName,
   previewMode,
   submittedCount,
+  onSaveDisplayName,
   onSignOut,
 }: {
   email: string;
+  displayName: string;
+  savedDisplayName: string;
   previewMode: boolean;
   submittedCount: number;
+  onSaveDisplayName: (name: string) => Promise<void>;
   onSignOut: () => void;
 }) {
+  const [nameDraft, setNameDraft] = useState(savedDisplayName);
+  const [savingName, setSavingName] = useState(false);
+  const [nameMessage, setNameMessage] = useState('');
+
+  useEffect(() => {
+    setNameDraft(savedDisplayName);
+  }, [savedDisplayName, email]);
+
+  async function saveName() {
+    const error = displayNameError(nameDraft);
+    if (error) {
+      setNameMessage(error);
+      return;
+    }
+    setSavingName(true);
+    setNameMessage('');
+    try {
+      await onSaveDisplayName(nameDraft.trim());
+      setNameMessage('Display name saved.');
+    } catch (error) {
+      setNameMessage(error instanceof Error ? error.message : 'Could not save your display name.');
+    } finally {
+      setSavingName(false);
+    }
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
       <View style={styles.profileHeader}>
@@ -645,12 +733,38 @@ function ProfileScreen({
       </View>
       <Text style={styles.profileTitle}>Profile</Text>
       <View style={styles.profileIdentity}>
-        <View style={styles.profileAvatar}><Text style={styles.profileAvatarText}>{email.slice(0, 1).toUpperCase()}</Text></View>
+        <View style={styles.profileAvatar}><Text style={styles.profileAvatarText}>{displayName.slice(0, 1).toUpperCase()}</Text></View>
         <View style={styles.profileIdentityCopy}>
-          <Text style={styles.profileEmail}>{email}</Text>
-          <Text style={styles.profileMode}>{previewMode ? 'PREVIEW ACCOUNT' : 'EMAIL ACCOUNT'}</Text>
+          <Text style={styles.profileName}>{displayName}</Text>
+          <Text style={styles.profileMode}>{previewMode ? 'PREVIEW ACCOUNT' : 'DISPLAY NAME'}</Text>
         </View>
       </View>
+
+      {!previewMode ? (
+        <View style={styles.nameEditor}>
+          <Text style={styles.sectionEyebrow}>PUBLIC DISPLAY NAME</Text>
+          <Text style={styles.nameHint}>Choose what others will see when community features are available. This name does not need to be unique.</Text>
+          <TextInput
+            accessibilityLabel="Public display name"
+            autoCapitalize="words"
+            maxLength={30}
+            onChangeText={(value) => { setNameDraft(value); setNameMessage(''); }}
+            placeholder="Choose a name"
+            placeholderTextColor="#9AA098"
+            style={styles.input}
+            value={nameDraft}
+          />
+          {nameMessage ? <Text accessibilityRole="alert" style={styles.nameMessage}>{nameMessage}</Text> : null}
+          <Pressable
+            accessibilityRole="button"
+            disabled={savingName || nameDraft.trim() === savedDisplayName}
+            onPress={saveName}
+            style={({ pressed }) => [styles.nameSaveButton, pressed && styles.pressed, (savingName || nameDraft.trim() === savedDisplayName) && styles.disabled]}
+          >
+            <Text style={styles.nameSaveText}>{savingName ? 'Saving...' : 'Save display name'}</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <Text style={styles.sectionEyebrow}>YOUR PROGRESS</Text>
       <View style={styles.profileStats}>
@@ -672,7 +786,7 @@ function ProfileScreen({
 
       <View style={styles.accountNote}>
         <Text style={styles.accountNoteTitle}>ACCOUNT & PRIVACY</Text>
-        <Text style={styles.accountNoteText}>Your email is used to sign in. Public profile and location-sharing controls are not connected yet.</Text>
+        <Text style={styles.accountNoteText}>Sign-in email: {email}. Your email stays in your account and is not used as your display name. Community profiles and location sharing are not connected yet.</Text>
       </View>
       <Pressable onPress={onSignOut} style={styles.signOutButton}>
         <Text style={styles.signOutText}>Sign out</Text>
@@ -718,6 +832,7 @@ const styles = StyleSheet.create({
   modeTextActive: { color: palette.white },
   inputLabel: { color: palette.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1.2, marginBottom: 8, marginTop: 10 },
   input: { height: 48, borderWidth: 1, borderColor: palette.line, paddingHorizontal: 13, color: palette.ink, fontSize: 14, backgroundColor: '#FFF' },
+  inputHint: { color: palette.muted, fontSize: 11, lineHeight: 16, marginTop: 6 },
   formMessage: { color: '#B4232A', fontSize: 12, lineHeight: 18, marginTop: 12 },
   primaryButton: { minHeight: 50, backgroundColor: palette.red, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
   primaryButtonText: { color: palette.white, fontWeight: '700', fontSize: 14 },
@@ -803,8 +918,13 @@ const styles = StyleSheet.create({
   profileAvatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center' },
   profileAvatarText: { color: palette.red, fontSize: 19, fontWeight: '700' },
   profileIdentityCopy: { flex: 1 },
-  profileEmail: { color: palette.ink, fontSize: 14, fontWeight: '700' },
+  profileName: { color: palette.ink, fontSize: 17, fontWeight: '700' },
   profileMode: { color: palette.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1.1, marginTop: 5 },
+  nameEditor: { marginBottom: 28 },
+  nameHint: { color: palette.muted, fontSize: 11, lineHeight: 17, marginTop: 7, marginBottom: 12 },
+  nameMessage: { color: palette.muted, fontSize: 11, marginTop: 9 },
+  nameSaveButton: { minHeight: 44, backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center', marginTop: 12 },
+  nameSaveText: { color: palette.white, fontSize: 12, fontWeight: '700' },
   profileStats: { backgroundColor: palette.paper, marginTop: 11, paddingHorizontal: 14 },
   profileStatRow: { minHeight: 50, borderBottomWidth: 1, borderColor: palette.line, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   profileStatLabel: { color: palette.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
