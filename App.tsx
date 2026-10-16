@@ -837,7 +837,7 @@ function ProfileScreen({
           {!previewMode ? (
             <View style={styles.profilePhotoBadge}>
               {savingProfilePhoto ? <ActivityIndicator color={palette.white} size="small" /> : (
-                <Pencil color={palette.white} size={12} strokeWidth={2.5} />
+                <Pencil color={palette.white} size={15} strokeWidth={2.5} />
               )}
             </View>
           ) : null}
@@ -887,10 +887,22 @@ function ProfileScreen({
               style={({ pressed }) => [styles.profileNameButton, pressed && styles.pressed]}
             >
               <Text numberOfLines={1} style={styles.profileName}>{displayName}</Text>
-              {!previewMode ? <View style={styles.profileNamePen}><Pencil color={palette.white} size={11} strokeWidth={2.5} /></View> : null}
             </Pressable>
           )}
-          <Text style={styles.profileMode}>{previewMode ? 'PREVIEW ACCOUNT' : 'DISPLAY NAME'}</Text>
+          <View style={styles.profileModeRow}>
+            <Text style={styles.profileMode}>{previewMode ? 'PREVIEW ACCOUNT' : 'DISPLAY NAME'}</Text>
+            {!previewMode && !editingName ? (
+              <Pressable
+                accessibilityLabel="Edit display name"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => { setNameDraft(savedDisplayName); setNameMessage(''); setEditingName(true); }}
+                style={({ pressed }) => [styles.profileNamePenButton, pressed && styles.pressed]}
+              >
+                <View style={styles.profileNamePen}><Pencil color={palette.white} size={11} strokeWidth={2.5} /></View>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       </View>
       {previewMode ? <Text style={styles.profilePhotoHint}>Sign in to save a profile picture.</Text> : null}
@@ -1045,21 +1057,23 @@ const styles = StyleSheet.create({
   leaderboardTitle: { color: palette.ink, fontSize: 12, fontWeight: '700' },
   profileHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 22 },
   profileTitle: { color: palette.ink, fontSize: 34, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginBottom: 22 },
-  profileIdentity: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 18, borderTopWidth: 1, borderBottomWidth: 1, borderColor: palette.line, marginBottom: 28 },
-  profileAvatar: { width: 52, height: 52, borderRadius: 26, overflow: 'hidden', backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center' },
-  profileAvatarImage: { width: 52, height: 52 },
-  profileAvatarText: { color: palette.red, fontSize: 19, fontWeight: '700' },
-  profilePhotoButton: { width: 64, height: 60 },
-  profilePhotoBadge: { position: 'absolute', right: 0, bottom: 0, width: 23, height: 23, borderRadius: 12, backgroundColor: palette.red, borderWidth: 2, borderColor: palette.background, alignItems: 'center', justifyContent: 'center' },
+  profileIdentity: { alignItems: 'center', gap: 12, paddingVertical: 24, borderTopWidth: 1, borderBottomWidth: 1, borderColor: palette.line, marginBottom: 28 },
+  profileAvatar: { width: 100, height: 100, borderRadius: 50, overflow: 'hidden', backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
+  profileAvatarImage: { width: 100, height: 100 },
+  profileAvatarText: { color: palette.red, fontSize: 36, fontWeight: '700' },
+  profilePhotoButton: { width: 112, height: 112 },
+  profilePhotoBadge: { position: 'absolute', right: 0, bottom: 0, width: 30, height: 30, borderRadius: 15, backgroundColor: palette.red, borderWidth: 2, borderColor: palette.background, alignItems: 'center', justifyContent: 'center' },
   profilePhotoHint: { color: palette.muted, fontSize: 11, marginTop: -20, marginBottom: 28 },
-  profileIdentityCopy: { flex: 1 },
-  profileNameButton: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 8, minHeight: 30, maxWidth: '100%' },
-  profileName: { color: palette.ink, fontSize: 17, fontWeight: '700', flexShrink: 1 },
+  profileIdentityCopy: { alignItems: 'center', width: '100%', maxWidth: 320 },
+  profileNameButton: { alignItems: 'center', justifyContent: 'center', minHeight: 34, maxWidth: '100%' },
+  profileName: { color: palette.ink, fontSize: 22, fontWeight: '700', flexShrink: 1, textAlign: 'center' },
+  profileNamePenButton: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   profileNamePen: { width: 21, height: 21, borderRadius: 11, backgroundColor: palette.red, alignItems: 'center', justifyContent: 'center' },
-  profileNameInput: { height: 40, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, paddingHorizontal: 10, color: palette.ink, fontSize: 16 },
-  profileMode: { color: palette.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1.1, marginTop: 5 },
+  profileNameInput: { width: '100%', height: 44, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, paddingHorizontal: 10, color: palette.ink, fontSize: 16, textAlign: 'center' },
+  profileModeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, marginTop: 5 },
+  profileMode: { color: palette.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1.1, textAlign: 'center' },
   nameMessage: { color: palette.muted, fontSize: 11, marginTop: 9 },
-  nameActions: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  nameActions: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: 8 },
   nameActionButton: { minHeight: 38, minWidth: 68, backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center' },
   nameCancelButton: { minHeight: 38, minWidth: 68, alignItems: 'center', justifyContent: 'center' },
   nameCancelText: { color: palette.muted, fontSize: 12, fontWeight: '700' },
