@@ -10,9 +10,6 @@
       "bundler": "metro",
       "output": "single"
     },
-    "splash": {
-      "backgroundColor": "#f4f2e8"
-    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -25,7 +22,13 @@
       ]
     },
     "plugins": [
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#f4f2e8"
+        }
+      ]
     ]
   }
 }
