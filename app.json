@@ -13,7 +13,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "LanternDie uses your photo library so you can choose a lanternfly photo to log."
+        "NSPhotoLibraryUsageDescription": "LanternDie uses your photo library so you can choose lanternfly photos and a profile picture."
       }
     },
     "android": {

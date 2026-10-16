@@ -79,6 +79,8 @@ mode does not create an account or persist data.
 Supabase sessions are persisted locally with AsyncStorage. Report photos are
 stored in a private Supabase Storage bucket; each account can read only its
 own reports. Each submitted image is converted to JPEG and limited to 5 MB.
+Profile pictures are saved in a separate private bucket. Users can add or
+change them from Profile, and the picture appears in the Home shortcut.
 
 Email sign-up asks for a public display name. Google users and existing users
 can set or change theirs from **Profile**. The name is saved in Supabase Auth

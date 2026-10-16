@@ -18,8 +18,9 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
-import { House, UserRound, UsersRound } from 'lucide-react-native';
+import { House, Pencil, UserRound, UsersRound } from 'lucide-react-native';
 import { loadReports, submitReport, type Report } from './lib/reports';
+import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { supabase } from './lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -63,9 +64,14 @@ export default function App() {
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportError, setReportError] = useState('');
   const [savingReport, setSavingReport] = useState(false);
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [profilePhotoOwnerId, setProfilePhotoOwnerId] = useState<string | null>(null);
+  const [profilePhotoError, setProfilePhotoError] = useState('');
+  const [savingProfilePhoto, setSavingProfilePhoto] = useState(false);
   const activeUserId = useRef<string | null>(null);
   activeUserId.current = session?.user.id ?? null;
   const visibleReports = reportsOwnerId === session?.user.id ? reports : [];
+  const visibleProfilePhoto = profilePhotoOwnerId === session?.user.id ? profilePhotoUrl : null;
   const displayName = getDisplayName(session?.user.user_metadata?.display_name);
   const savedDisplayName = typeof session?.user.user_metadata?.display_name === 'string'
     ? session.user.user_metadata.display_name.trim() : '';
@@ -93,6 +99,27 @@ export default function App() {
       setReports([]);
       setReportError('');
     }
+  }, [session?.user.id]);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    setProfilePhotoUrl(null);
+    setProfilePhotoOwnerId(null);
+    setProfilePhotoError('');
+    if (!userId) return;
+
+    loadProfilePhoto(userId)
+      .then((url) => {
+        if (activeUserId.current === userId) {
+          setProfilePhotoUrl(url);
+          setProfilePhotoOwnerId(userId);
+        }
+      })
+      .catch((error) => {
+        if (activeUserId.current === userId) {
+          setProfilePhotoError(error instanceof Error ? error.message : 'Could not load your profile photo.');
+        }
+      });
   }, [session?.user.id]);
 
   async function refreshReports(userId = session?.user.id) {
@@ -148,6 +175,42 @@ export default function App() {
     }
   }
 
+  async function chooseProfilePhoto() {
+    if (!session || savingProfilePhoto) return;
+    const userId = session.user.id;
+    setProfilePhotoError('');
+    try {
+      if (Platform.OS !== 'web') {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          setProfilePhotoError('Allow photo-library access to choose a profile picture.');
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (result.canceled || !result.assets[0]) return;
+
+      setSavingProfilePhoto(true);
+      const url = await saveProfilePhoto(userId, result.assets[0]);
+      if (activeUserId.current === userId) {
+        setProfilePhotoUrl(url);
+        setProfilePhotoOwnerId(userId);
+      }
+    } catch (error) {
+      if (activeUserId.current === userId) {
+        setProfilePhotoError(error instanceof Error ? error.message : 'Could not save your profile picture.');
+      }
+    } finally {
+      setSavingProfilePhoto(false);
+    }
+  }
+
   async function signOut() {
     if (supabase && session) {
       await supabase.auth.signOut();
@@ -156,6 +219,9 @@ export default function App() {
     setPhotoAsset(null);
     setReports([]);
     setReportsOwnerId(null);
+    setProfilePhotoUrl(null);
+    setProfilePhotoOwnerId(null);
+    setProfilePhotoError('');
     setScreen('home');
   }
 
@@ -189,6 +255,7 @@ export default function App() {
         <View style={styles.screenContainer}>
           {screen === 'home' ? (
             <HomeScreen
+              profilePhotoUrl={visibleProfilePhoto}
               displayName={displayName}
               previewMode={previewMode}
               photoUri={photoAsset?.uri ?? null}
@@ -206,6 +273,10 @@ export default function App() {
           ) : (
             <ProfileScreen
               email={session?.user.email ?? 'Preview account'}
+              profilePhotoUrl={visibleProfilePhoto}
+              profilePhotoError={profilePhotoError}
+              savingProfilePhoto={savingProfilePhoto}
+              onChooseProfilePhoto={chooseProfilePhoto}
               displayName={displayName}
               savedDisplayName={savedDisplayName}
               previewMode={previewMode}
@@ -436,6 +507,7 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
 }
 
 function HomeScreen({
+  profilePhotoUrl,
   displayName,
   previewMode,
   photoUri,
@@ -448,6 +520,7 @@ function HomeScreen({
   onRefreshReports,
   onOpenProfile,
 }: {
+  profilePhotoUrl: string | null;
   displayName: string;
   previewMode: boolean;
   photoUri: string | null;
@@ -468,7 +541,9 @@ function HomeScreen({
           <Text style={styles.greeting}>Good to see you.</Text>
         </View>
         <Pressable accessibilityLabel="Open profile" onPress={onOpenProfile} style={styles.avatarButton}>
-          <Text style={styles.avatarText}>{displayName.slice(0, 1).toUpperCase()}</Text>
+          {profilePhotoUrl ? <Image source={{ uri: profilePhotoUrl }} style={styles.homeAvatarImage} /> : (
+            <Text style={styles.avatarText}>{displayName.slice(0, 1).toUpperCase()}</Text>
+          )}
         </Pressable>
       </View>
 
@@ -685,6 +760,10 @@ function BottomNavigation({
 
 function ProfileScreen({
   email,
+  profilePhotoUrl,
+  profilePhotoError,
+  savingProfilePhoto,
+  onChooseProfilePhoto,
   displayName,
   savedDisplayName,
   previewMode,
@@ -693,6 +772,10 @@ function ProfileScreen({
   onSignOut,
 }: {
   email: string;
+  profilePhotoUrl: string | null;
+  profilePhotoError: string;
+  savingProfilePhoto: boolean;
+  onChooseProfilePhoto: () => void;
   displayName: string;
   savedDisplayName: string;
   previewMode: boolean;
@@ -701,6 +784,7 @@ function ProfileScreen({
   onSignOut: () => void;
 }) {
   const [nameDraft, setNameDraft] = useState(savedDisplayName);
+  const [editingName, setEditingName] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [nameMessage, setNameMessage] = useState('');
 
@@ -709,6 +793,11 @@ function ProfileScreen({
   }, [savedDisplayName, email]);
 
   async function saveName() {
+    if (savingName) return;
+    if (nameDraft.trim() === savedDisplayName) {
+      setEditingName(false);
+      return;
+    }
     const error = displayNameError(nameDraft);
     if (error) {
       setNameMessage(error);
@@ -718,7 +807,7 @@ function ProfileScreen({
     setNameMessage('');
     try {
       await onSaveDisplayName(nameDraft.trim());
-      setNameMessage('Display name saved.');
+      setEditingName(false);
     } catch (error) {
       setNameMessage(error instanceof Error ? error.message : 'Could not save your display name.');
     } finally {
@@ -733,38 +822,91 @@ function ProfileScreen({
       </View>
       <Text style={styles.profileTitle}>Profile</Text>
       <View style={styles.profileIdentity}>
-        <View style={styles.profileAvatar}><Text style={styles.profileAvatarText}>{displayName.slice(0, 1).toUpperCase()}</Text></View>
+        <Pressable
+          accessibilityLabel="Change profile picture"
+          accessibilityRole="button"
+          disabled={previewMode || savingProfilePhoto}
+          onPress={onChooseProfilePhoto}
+          style={({ pressed }) => [styles.profilePhotoButton, pressed && styles.pressed, (previewMode || savingProfilePhoto) && styles.disabled]}
+        >
+          <View style={styles.profileAvatar}>
+            {profilePhotoUrl ? <Image source={{ uri: profilePhotoUrl }} style={styles.profileAvatarImage} /> : (
+              <Text style={styles.profileAvatarText}>{displayName.slice(0, 1).toUpperCase()}</Text>
+            )}
+          </View>
+          {!previewMode ? (
+            <View style={styles.profilePhotoBadge}>
+              {savingProfilePhoto ? <ActivityIndicator color={palette.white} size="small" /> : (
+                <Pencil color={palette.white} size={15} strokeWidth={2.5} />
+              )}
+            </View>
+          ) : null}
+        </Pressable>
         <View style={styles.profileIdentityCopy}>
-          <Text style={styles.profileName}>{displayName}</Text>
-          <Text style={styles.profileMode}>{previewMode ? 'PREVIEW ACCOUNT' : 'DISPLAY NAME'}</Text>
+          {editingName ? (
+            <>
+              <TextInput
+                accessibilityLabel="Display name"
+                autoCapitalize="words"
+                autoFocus
+                maxLength={30}
+                onChangeText={(value) => { setNameDraft(value); setNameMessage(''); }}
+                onSubmitEditing={() => void saveName()}
+                placeholder="Choose a name"
+                placeholderTextColor="#9AA098"
+                returnKeyType="done"
+                style={styles.profileNameInput}
+                value={nameDraft}
+              />
+              {nameMessage ? <Text accessibilityRole="alert" style={styles.nameMessage}>{nameMessage}</Text> : null}
+              <View style={styles.nameActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={savingName}
+                  onPress={() => void saveName()}
+                  style={({ pressed }) => [styles.nameActionButton, pressed && styles.pressed, savingName && styles.disabled]}
+                >
+                  <Text style={styles.nameSaveText}>{savingName ? 'Saving...' : 'Save'}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={savingName}
+                  onPress={() => { setNameDraft(savedDisplayName); setNameMessage(''); setEditingName(false); }}
+                  style={({ pressed }) => [styles.nameCancelButton, pressed && styles.pressed, savingName && styles.disabled]}
+                >
+                  <Text style={styles.nameCancelText}>Cancel</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : (
+            <Pressable
+              accessibilityLabel="Edit display name"
+              accessibilityRole="button"
+              disabled={previewMode}
+              onPress={() => { setNameDraft(savedDisplayName); setNameMessage(''); setEditingName(true); }}
+              style={({ pressed }) => [styles.profileNameButton, pressed && styles.pressed]}
+            >
+              <Text numberOfLines={1} style={styles.profileName}>{displayName}</Text>
+            </Pressable>
+          )}
+          <View style={styles.profileModeRow}>
+            <Text style={styles.profileMode}>{previewMode ? 'PREVIEW ACCOUNT' : 'DISPLAY NAME'}</Text>
+            {!previewMode && !editingName ? (
+              <Pressable
+                accessibilityLabel="Edit display name"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => { setNameDraft(savedDisplayName); setNameMessage(''); setEditingName(true); }}
+                style={({ pressed }) => [styles.profileNamePenButton, pressed && styles.pressed]}
+              >
+                <View style={styles.profileNamePen}><Pencil color={palette.white} size={11} strokeWidth={2.5} /></View>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       </View>
-
-      {!previewMode ? (
-        <View style={styles.nameEditor}>
-          <Text style={styles.sectionEyebrow}>PUBLIC DISPLAY NAME</Text>
-          <Text style={styles.nameHint}>Choose what others will see when community features are available. This name does not need to be unique.</Text>
-          <TextInput
-            accessibilityLabel="Public display name"
-            autoCapitalize="words"
-            maxLength={30}
-            onChangeText={(value) => { setNameDraft(value); setNameMessage(''); }}
-            placeholder="Choose a name"
-            placeholderTextColor="#9AA098"
-            style={styles.input}
-            value={nameDraft}
-          />
-          {nameMessage ? <Text accessibilityRole="alert" style={styles.nameMessage}>{nameMessage}</Text> : null}
-          <Pressable
-            accessibilityRole="button"
-            disabled={savingName || nameDraft.trim() === savedDisplayName}
-            onPress={saveName}
-            style={({ pressed }) => [styles.nameSaveButton, pressed && styles.pressed, (savingName || nameDraft.trim() === savedDisplayName) && styles.disabled]}
-          >
-            <Text style={styles.nameSaveText}>{savingName ? 'Saving...' : 'Save display name'}</Text>
-          </Pressable>
-        </View>
-      ) : null}
+      {previewMode ? <Text style={styles.profilePhotoHint}>Sign in to save a profile picture.</Text> : null}
+      {profilePhotoError ? <Text accessibilityRole="alert" style={styles.formMessage}>{profilePhotoError}</Text> : null}
 
       <Text style={styles.sectionEyebrow}>YOUR PROGRESS</Text>
       <View style={styles.profileStats}>
@@ -850,7 +992,8 @@ const styles = StyleSheet.create({
   pageContent: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 34 },
   homeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 },
   greeting: { color: palette.ink, fontSize: 26, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 5 },
-  avatarButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.red },
+  avatarButton: { width: 42, height: 42, borderRadius: 21, overflow: 'hidden', backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.red },
+  homeAvatarImage: { width: 40, height: 40 },
   avatarText: { color: palette.red, fontSize: 15, fontWeight: '800' },
   previewBanner: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, backgroundColor: palette.paleRed, borderLeftWidth: 3, borderLeftColor: palette.red, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 14 },
   previewBannerText: { color: palette.red, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
@@ -914,16 +1057,26 @@ const styles = StyleSheet.create({
   leaderboardTitle: { color: palette.ink, fontSize: 12, fontWeight: '700' },
   profileHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 22 },
   profileTitle: { color: palette.ink, fontSize: 34, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginBottom: 22 },
-  profileIdentity: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 18, borderTopWidth: 1, borderBottomWidth: 1, borderColor: palette.line, marginBottom: 28 },
-  profileAvatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center' },
-  profileAvatarText: { color: palette.red, fontSize: 19, fontWeight: '700' },
-  profileIdentityCopy: { flex: 1 },
-  profileName: { color: palette.ink, fontSize: 17, fontWeight: '700' },
-  profileMode: { color: palette.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1.1, marginTop: 5 },
-  nameEditor: { marginBottom: 28 },
-  nameHint: { color: palette.muted, fontSize: 11, lineHeight: 17, marginTop: 7, marginBottom: 12 },
+  profileIdentity: { alignItems: 'center', gap: 12, paddingVertical: 24, borderTopWidth: 1, borderBottomWidth: 1, borderColor: palette.line, marginBottom: 28 },
+  profileAvatar: { width: 100, height: 100, borderRadius: 50, overflow: 'hidden', backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
+  profileAvatarImage: { width: 100, height: 100 },
+  profileAvatarText: { color: palette.red, fontSize: 36, fontWeight: '700' },
+  profilePhotoButton: { width: 112, height: 112 },
+  profilePhotoBadge: { position: 'absolute', right: 0, bottom: 0, width: 30, height: 30, borderRadius: 15, backgroundColor: palette.red, borderWidth: 2, borderColor: palette.background, alignItems: 'center', justifyContent: 'center' },
+  profilePhotoHint: { color: palette.muted, fontSize: 11, marginTop: -20, marginBottom: 28 },
+  profileIdentityCopy: { alignItems: 'center', width: '100%', maxWidth: 320 },
+  profileNameButton: { alignItems: 'center', justifyContent: 'center', minHeight: 34, maxWidth: '100%' },
+  profileName: { color: palette.ink, fontSize: 22, fontWeight: '700', flexShrink: 1, textAlign: 'center' },
+  profileNamePenButton: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  profileNamePen: { width: 21, height: 21, borderRadius: 11, backgroundColor: palette.red, alignItems: 'center', justifyContent: 'center' },
+  profileNameInput: { width: '100%', height: 44, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, paddingHorizontal: 10, color: palette.ink, fontSize: 16, textAlign: 'center' },
+  profileModeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, marginTop: 5 },
+  profileMode: { color: palette.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1.1, textAlign: 'center' },
   nameMessage: { color: palette.muted, fontSize: 11, marginTop: 9 },
-  nameSaveButton: { minHeight: 44, backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center', marginTop: 12 },
+  nameActions: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: 8 },
+  nameActionButton: { minHeight: 38, minWidth: 68, backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center' },
+  nameCancelButton: { minHeight: 38, minWidth: 68, alignItems: 'center', justifyContent: 'center' },
+  nameCancelText: { color: palette.muted, fontSize: 12, fontWeight: '700' },
   nameSaveText: { color: palette.white, fontSize: 12, fontWeight: '700' },
   profileStats: { backgroundColor: palette.paper, marginTop: 11, paddingHorizontal: 14 },
   profileStatRow: { minHeight: 50, borderBottomWidth: 1, borderColor: palette.line, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
