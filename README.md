@@ -82,6 +82,12 @@ own reports. Each submitted image is converted to JPEG and limited to 5 MB.
 Profile pictures are saved in a separate private bucket. Users can add or
 change them from Profile, and the picture appears in the Home shortcut.
 
+Email sign-up asks for a public display name. Google users and existing users
+can set or change theirs from **Profile**. The name is saved in Supabase Auth
+user metadata and appears in the app instead of the sign-in email. Names are
+not unique. Community profiles are not connected yet; when they are added,
+show this display name and keep email private.
+
 ## Website deployment
 
 1. In **Vercel**, import this GitHub repository with `main` as the Production
