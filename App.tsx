@@ -223,6 +223,13 @@ export default function App() {
     }
   }
 
+  function cancelReportUpload() {
+    if (savingReport) return;
+    setPhotoAsset(null);
+    setReportDetails(newReportDetails());
+    setReportError('');
+  }
+
   async function saveEditedReport() {
     if (!session || !editingReportId || savingReport) return;
     setSavingReport(true);
@@ -405,6 +412,7 @@ export default function App() {
               savingReport={savingReport}
               onChoosePhoto={choosePhoto}
               onSubmitReport={saveReport}
+              onCancelReportUpload={cancelReportUpload}
               onSaveEditedReport={saveEditedReport}
               onEditReport={(report) => {
                 setPhotoAsset(null);
@@ -673,6 +681,7 @@ function HomeScreen({
   savingReport,
   onChoosePhoto,
   onSubmitReport,
+  onCancelReportUpload,
   onSaveEditedReport,
   onEditReport,
   onCancelEdit,
@@ -692,6 +701,7 @@ function HomeScreen({
   savingReport: boolean;
   onChoosePhoto: () => void;
   onSubmitReport: () => void;
+  onCancelReportUpload: () => void;
   onSaveEditedReport: () => void;
   onEditReport: (report: Report) => void;
   onCancelEdit: () => void;
@@ -784,19 +794,23 @@ function HomeScreen({
           </Text>
         </View>
       ) : null}
-      {photoUri && !previewMode && !editingReportId ? (
+      {photoUri && !editingReportId ? (
         <>
-        <ReportFields details={reportDetails} onChange={onChangeReportDetails} />
-        <Pressable
-          accessibilityRole="button"
-          disabled={savingReport}
-          onPress={onSubmitReport}
-          style={[styles.primaryButton, savingReport && styles.disabled]}
-        >
-          {savingReport ? <ActivityIndicator color={palette.white} /> : (
-            <Text style={styles.primaryButtonText}>Submit report</Text>
-          )}
-        </Pressable>
+          {!previewMode ? <ReportFields details={reportDetails} onChange={onChangeReportDetails} /> : null}
+          <View style={styles.reportUploadActions}>
+            {!previewMode ? <Pressable
+              accessibilityRole="button"
+              disabled={savingReport}
+              onPress={onSubmitReport}
+              style={[styles.primaryButton, styles.reportSubmitButton, savingReport && styles.disabled]}
+            >
+              {savingReport ? <ActivityIndicator color={palette.white} /> : <Text style={styles.primaryButtonText}>Submit report</Text>}
+            </Pressable> : null}
+            <Pressable accessibilityRole="button" accessibilityLabel="Cancel report upload" disabled={savingReport}
+              onPress={onCancelReportUpload} style={[styles.cancelUploadButton, previewMode && styles.cancelUploadButtonFull, savingReport && styles.disabled]}>
+              <Text style={styles.cancelUploadText}>Cancel</Text>
+            </Pressable>
+          </View>
         </>
       ) : null}
       {reportError ? <Text accessibilityRole="alert" style={styles.formMessage}>{reportError}</Text> : null}
@@ -1271,6 +1285,11 @@ const styles = StyleSheet.create({
   selectedPhotoNotice: { backgroundColor: '#F0F0F0', padding: 11, marginTop: 8 },
   selectedPhotoTitle: { color: palette.red, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
   selectedPhotoCopy: { color: '#5D665D', fontSize: 11, lineHeight: 16, marginTop: 4 },
+  reportUploadActions: { flexDirection: 'row', gap: 10 },
+  reportSubmitButton: { flex: 1 },
+  cancelUploadButton: { minWidth: 100, minHeight: 50, borderWidth: 1, borderColor: palette.red, alignItems: 'center', justifyContent: 'center', marginTop: 18, paddingHorizontal: 16 },
+  cancelUploadButtonFull: { flex: 1 },
+  cancelUploadText: { color: palette.red, fontSize: 14, fontWeight: '700' },
   privacyNote: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 29 },
   privacyGlyph: { width: 16, height: 16, textAlign: 'center', textAlignVertical: 'center', borderRadius: 8, overflow: 'hidden', backgroundColor: palette.paleRed, color: palette.red, fontSize: 10, fontWeight: '800' },
   privacyText: { color: palette.muted, fontSize: 10, flex: 1 },
