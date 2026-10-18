@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,8 +18,8 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
-import { House, Pencil, UserRound, UsersRound } from 'lucide-react-native';
-import { loadReports, submitReport, type Report } from './lib/reports';
+import { Flag, House, Pencil, UserRound, UsersRound } from 'lucide-react-native';
+import { loadReports, loadPublicReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { supabase } from './lib/supabase';
 
@@ -40,6 +40,19 @@ const palette = {
 type Screen = 'home' | 'community' | 'profile';
 type AuthMode = 'sign-in' | 'sign-up';
 
+function todayDate(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function newReportDetails(): ReportDetails {
+  return { observed_on: todayDate(), place_name: '', caption: '', visibility: 'private' };
+}
+
+function reportScore(report: Report): number {
+  return report.upvotes - report.downvotes;
+}
+
 function getDisplayName(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : 'Field member';
 }
@@ -59,7 +72,15 @@ export default function App() {
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [screen, setScreen] = useState<Screen>('home');
   const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [reportDetails, setReportDetails] = useState<ReportDetails>(newReportDetails);
+  const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
+  const [publicReports, setPublicReports] = useState<Report[]>([]);
+  const [publicReportsViewerId, setPublicReportsViewerId] = useState<string | null>(null);
+  const [communityLoading, setCommunityLoading] = useState(false);
+  const [communityError, setCommunityError] = useState('');
+  const [communityBusyId, setCommunityBusyId] = useState<string | null>(null);
+  const communityActionInFlight = useRef(false);
   const [reportsOwnerId, setReportsOwnerId] = useState<string | null>(null);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportError, setReportError] = useState('');
@@ -71,6 +92,7 @@ export default function App() {
   const activeUserId = useRef<string | null>(null);
   activeUserId.current = session?.user.id ?? null;
   const visibleReports = reportsOwnerId === session?.user.id ? reports : [];
+  const visiblePublicReports = publicReportsViewerId === session?.user.id ? publicReports : [];
   const visibleProfilePhoto = profilePhotoOwnerId === session?.user.id ? profilePhotoUrl : null;
   const displayName = getDisplayName(session?.user.user_metadata?.display_name);
   const savedDisplayName = typeof session?.user.user_metadata?.display_name === 'string'
@@ -99,6 +121,13 @@ export default function App() {
       setReports([]);
       setReportError('');
     }
+  }, [session?.user.id]);
+
+  useEffect(() => {
+    setPublicReports([]);
+    setPublicReportsViewerId(null);
+    setCommunityError('');
+    if (session?.user.id) void refreshCommunity(session.user.id);
   }, [session?.user.id]);
 
   useEffect(() => {
@@ -141,6 +170,23 @@ export default function App() {
     }
   }
 
+  async function refreshCommunity(userId = session?.user.id) {
+    if (!userId) return;
+    setCommunityLoading(true);
+    setCommunityError('');
+    try {
+      const next = await loadPublicReports(userId);
+      if (activeUserId.current === userId) {
+        setPublicReports(next);
+        setPublicReportsViewerId(userId);
+      }
+    } catch (error) {
+      if (activeUserId.current === userId) setCommunityError(error instanceof Error ? error.message : 'Could not load community reports.');
+    } finally {
+      if (activeUserId.current === userId) setCommunityLoading(false);
+    }
+  }
+
   async function choosePhoto() {
     if (Platform.OS !== 'web') {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -165,13 +211,100 @@ export default function App() {
     setSavingReport(true);
     setReportError('');
     try {
-      await submitReport(session.user.id, photoAsset);
+      await submitReport(session.user.id, photoAsset, reportDetails);
       setPhotoAsset(null);
+      setReportDetails(newReportDetails());
       await refreshReports(session.user.id);
+      await refreshCommunity(session.user.id);
     } catch (error) {
       setReportError(error instanceof Error ? error.message : 'Could not save your report.');
     } finally {
       setSavingReport(false);
+    }
+  }
+
+  async function saveEditedReport() {
+    if (!session || !editingReportId || savingReport) return;
+    setSavingReport(true);
+    setReportError('');
+    try {
+      await updateReportDetails(editingReportId, reportDetails);
+      if (reportDetails.visibility === 'private') setPublicReports(current => current.filter(report => report.id !== editingReportId));
+      setEditingReportId(null);
+      setReportDetails(newReportDetails());
+      await Promise.all([refreshReports(session.user.id), refreshCommunity(session.user.id)]);
+    } catch (error) {
+      setReportError(error instanceof Error ? error.message : 'Could not update report.');
+    } finally {
+      setSavingReport(false);
+    }
+  }
+
+  async function changeVote(report: Report, value: -1 | 1) {
+    if (!session || communityActionInFlight.current) return;
+    communityActionInFlight.current = true;
+    const userId = session.user.id;
+    const nextVote = report.my_vote === value ? 0 : value;
+    setCommunityBusyId(report.id);
+    setCommunityError('');
+    setPublicReports(current => current.map(item => item.id === report.id ? {
+      ...item,
+      upvotes: item.upvotes - Number(item.my_vote === 1) + Number(nextVote === 1),
+      downvotes: item.downvotes - Number(item.my_vote === -1) + Number(nextVote === -1),
+      my_vote: nextVote,
+    } : item));
+    try {
+      await setReportVote(report.id, userId, nextVote);
+      try {
+        const engagement = await loadReportEngagement(report.id);
+        if (activeUserId.current === userId) setPublicReports(current => current.map(item => item.id === report.id ? { ...item, ...engagement } : item));
+      } catch {
+        if (activeUserId.current === userId) setCommunityError('Vote saved, but counts could not be refreshed. Refresh the feed to sync.');
+      }
+    } catch (error) {
+      if (activeUserId.current === userId) {
+        setPublicReports(current => current.map(item => item.id === report.id && item.my_vote === nextVote ? {
+          ...item,
+          upvotes: item.upvotes - Number(nextVote === 1) + Number(report.my_vote === 1),
+          downvotes: item.downvotes - Number(nextVote === -1) + Number(report.my_vote === -1),
+          my_vote: report.my_vote,
+        } : item));
+        setCommunityError(error instanceof Error ? error.message : 'Could not save vote.');
+      }
+    } finally {
+      communityActionInFlight.current = false;
+      setCommunityBusyId(null);
+    }
+  }
+
+  async function changeFlag(report: Report) {
+    if (!session || communityActionInFlight.current) return;
+    communityActionInFlight.current = true;
+    const userId = session.user.id;
+    const nextFlag = !report.my_flag;
+    setCommunityBusyId(report.id);
+    setCommunityError('');
+    setPublicReports(current => current.map(item => item.id === report.id ? {
+      ...item, my_flag: nextFlag, flagged_inaccurate: nextFlag || item.flagged_inaccurate,
+    } : item));
+    try {
+      await setReportFlag(report.id, userId, nextFlag);
+      try {
+        const engagement = await loadReportEngagement(report.id);
+        if (activeUserId.current === userId) setPublicReports(current => current.map(item => item.id === report.id ? { ...item, ...engagement } : item));
+      } catch {
+        if (activeUserId.current === userId) setCommunityError('Flag saved, but status could not be refreshed. Refresh the feed to sync.');
+      }
+    } catch (error) {
+      if (activeUserId.current === userId) {
+        setPublicReports(current => current.map(item => item.id === report.id && item.my_flag === nextFlag ? {
+          ...item, my_flag: report.my_flag, flagged_inaccurate: report.flagged_inaccurate,
+        } : item));
+        setCommunityError(error instanceof Error ? error.message : 'Could not save flag.');
+      }
+    } finally {
+      communityActionInFlight.current = false;
+      setCommunityBusyId(null);
     }
   }
 
@@ -217,7 +350,11 @@ export default function App() {
     }
     setPreviewMode(false);
     setPhotoAsset(null);
+    setReportDetails(newReportDetails());
+    setEditingReportId(null);
     setReports([]);
+    setPublicReports([]);
+    setPublicReportsViewerId(null);
     setReportsOwnerId(null);
     setProfilePhotoUrl(null);
     setProfilePhotoOwnerId(null);
@@ -259,17 +396,30 @@ export default function App() {
               displayName={displayName}
               previewMode={previewMode}
               photoUri={photoAsset?.uri ?? null}
+              reportDetails={reportDetails}
+              onChangeReportDetails={setReportDetails}
+              editingReportId={editingReportId}
               reports={visibleReports}
               reportsLoading={reportsLoading}
               reportError={reportError}
               savingReport={savingReport}
               onChoosePhoto={choosePhoto}
               onSubmitReport={saveReport}
+              onSaveEditedReport={saveEditedReport}
+              onEditReport={(report) => {
+                setPhotoAsset(null);
+                setEditingReportId(report.id);
+                setReportDetails({ observed_on: report.observed_on, place_name: report.place_name ?? '', caption: report.caption ?? '', visibility: report.visibility });
+              }}
+              onCancelEdit={() => { setEditingReportId(null); setReportDetails(newReportDetails()); }}
               onRefreshReports={() => void refreshReports()}
               onOpenProfile={() => setScreen('profile')}
             />
           ) : screen === 'community' ? (
-            <CommunityScreen previewMode={previewMode} />
+            <CommunityScreen previewMode={previewMode} reports={visiblePublicReports} loading={communityLoading}
+              error={communityError} busyId={communityBusyId} userId={session?.user.id ?? null}
+              onRefresh={() => void refreshCommunity()} onVote={(report, value) => void changeVote(report, value)}
+              onFlag={(report) => void changeFlag(report)} />
           ) : (
             <ProfileScreen
               email={session?.user.email ?? 'Preview account'}
@@ -286,7 +436,10 @@ export default function App() {
             />
           )}
         </View>
-        <BottomNavigation activeScreen={screen} onSelect={setScreen} />
+        <BottomNavigation activeScreen={screen} onSelect={(next) => {
+          setScreen(next);
+          if (next === 'community' && session?.user.id) void refreshCommunity(session.user.id);
+        }} />
       </View>
     </SafeAreaView>
   );
@@ -511,12 +664,18 @@ function HomeScreen({
   displayName,
   previewMode,
   photoUri,
+  reportDetails,
+  onChangeReportDetails,
+  editingReportId,
   reports,
   reportsLoading,
   reportError,
   savingReport,
   onChoosePhoto,
   onSubmitReport,
+  onSaveEditedReport,
+  onEditReport,
+  onCancelEdit,
   onRefreshReports,
   onOpenProfile,
 }: {
@@ -524,12 +683,18 @@ function HomeScreen({
   displayName: string;
   previewMode: boolean;
   photoUri: string | null;
+  reportDetails: ReportDetails;
+  onChangeReportDetails: (details: ReportDetails) => void;
+  editingReportId: string | null;
   reports: Report[];
   reportsLoading: boolean;
   reportError: string;
   savingReport: boolean;
   onChoosePhoto: () => void;
   onSubmitReport: () => void;
+  onSaveEditedReport: () => void;
+  onEditReport: (report: Report) => void;
+  onCancelEdit: () => void;
   onRefreshReports: () => void;
   onOpenProfile: () => void;
 }) {
@@ -595,7 +760,7 @@ function HomeScreen({
         <Text style={styles.sectionIndex}>01 / 03</Text>
       </View>
 
-      <Pressable
+      {!editingReportId ? <Pressable
         accessibilityRole="button"
         onPress={onChoosePhoto}
         style={({ pressed }) => [styles.uploadButton, pressed && styles.pressed]}
@@ -610,16 +775,18 @@ function HomeScreen({
           <Text style={styles.uploadSubtitle}>{photoUri ? 'Tap to replace your selection' : 'Choose an image from your library'}</Text>
         </View>
         <Text style={styles.uploadArrow}>{'>'}</Text>
-      </Pressable>
+      </Pressable> : null}
       {photoUri ? (
         <View style={styles.selectedPhotoNotice}>
           <Text style={styles.selectedPhotoTitle}>PHOTO SELECTED</Text>
           <Text style={styles.selectedPhotoCopy}>
-            {previewMode ? 'This preview stays on your device.' : 'Review your photo, then submit it to your private field log.'}
+            {previewMode ? 'This preview stays on your device.' : 'Review the details and audience before submitting.'}
           </Text>
         </View>
       ) : null}
-      {photoUri && !previewMode ? (
+      {photoUri && !previewMode && !editingReportId ? (
+        <>
+        <ReportFields details={reportDetails} onChange={onChangeReportDetails} />
         <Pressable
           accessibilityRole="button"
           disabled={savingReport}
@@ -630,12 +797,13 @@ function HomeScreen({
             <Text style={styles.primaryButtonText}>Submit report</Text>
           )}
         </Pressable>
+        </>
       ) : null}
       {reportError ? <Text accessibilityRole="alert" style={styles.formMessage}>{reportError}</Text> : null}
 
       <View style={styles.privacyNote}>
         <Text style={styles.privacyGlyph}>i</Text>
-        <Text style={styles.privacyText}>Your precise location is not collected by this starter app.</Text>
+        <Text style={styles.privacyText}>Location is optional place text. Device GPS is not collected.</Text>
       </View>
 
       <View style={styles.sectionHeadingRow}>
@@ -652,14 +820,27 @@ function HomeScreen({
       ) : null}
       {reportsLoading ? <ActivityIndicator color={palette.red} /> : reports.length ? (
         reports.map((report) => (
-          <View key={report.id} style={styles.reportRow}>
-            {report.photo_url ? (
-              <Image source={{ uri: report.photo_url }} style={styles.reportPhoto} />
-            ) : <View style={styles.reportPhoto} />}
-            <View>
-              <Text style={styles.emptyActivityTitle}>Report submitted</Text>
-              <Text style={styles.emptyActivityCopy}>{new Date(report.created_at).toLocaleDateString()}</Text>
+          <View key={report.id} style={styles.reportCard}>
+            <View style={styles.reportRow}>
+              {report.photo_url ? <Image source={{ uri: report.photo_url }} style={styles.reportPhoto} /> : <View style={styles.reportPhoto} />}
+              <View style={styles.reportCopy}>
+                <Text style={styles.emptyActivityTitle}>{report.visibility === 'public' ? 'Public report' : 'Private report'}</Text>
+                <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
+                {report.caption ? <Text style={styles.emptyActivityCopy}>{report.caption}</Text> : null}
+                {report.flagged_inaccurate ? <Text style={styles.emptyActivityCopy}>Flagged for inaccuracy</Text> : null}
+              </View>
+              <View style={styles.reportAside}>
+                <Text accessibilityLabel={`Score ${reportScore(report)}`} style={styles.reportScore}>{reportScore(report)}</Text>
+                {!previewMode ? <Pressable accessibilityRole="button" accessibilityLabel="Edit report details" onPress={() => onEditReport(report)}><Text style={styles.refreshText}>Edit</Text></Pressable> : null}
+              </View>
             </View>
+            {editingReportId === report.id ? <View style={styles.editPanel}>
+              <ReportFields details={reportDetails} onChange={onChangeReportDetails} />
+              <Pressable accessibilityRole="button" disabled={savingReport} onPress={onSaveEditedReport} style={[styles.primaryButton, savingReport && styles.disabled]}>
+                <Text style={styles.primaryButtonText}>{savingReport ? 'Saving...' : 'Save details'}</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" onPress={onCancelEdit} style={styles.refreshButton}><Text style={styles.refreshText}>Cancel</Text></Pressable>
+            </View> : null}
           </View>
         ))
       ) : (
@@ -674,14 +855,43 @@ function HomeScreen({
   );
 }
 
-function CommunityScreen({ previewMode }: { previewMode: boolean }) {
+function ReportFields({ details, onChange }: { details: ReportDetails; onChange: (details: ReportDetails) => void }) {
+  return <View style={styles.reportFields}>
+    <Text style={styles.reportInputLabel}>OBSERVATION DATE · YYYY-MM-DD</Text>
+    <TextInput accessibilityLabel="Observation date" value={details.observed_on} onChangeText={observed_on => onChange({ ...details, observed_on })}
+      placeholder="YYYY-MM-DD" placeholderTextColor="#9AA098" style={styles.reportInput} autoCapitalize="none" />
+    <Text style={styles.reportInputLabel}>LOCATION · OPTIONAL</Text>
+    <TextInput accessibilityLabel="General location" value={details.place_name} onChangeText={place_name => onChange({ ...details, place_name })}
+      placeholder="City, park, or general area" placeholderTextColor="#9AA098" maxLength={100} style={styles.reportInput} />
+    <Text style={styles.reportInputLabel}>CAPTION · OPTIONAL</Text>
+    <TextInput accessibilityLabel="Report caption" value={details.caption} onChangeText={caption => onChange({ ...details, caption })}
+      placeholder="Add context about the sighting" placeholderTextColor="#9AA098" maxLength={280} multiline style={[styles.reportInput, styles.captionInput]} />
+    <Text style={styles.reportInputLabel}>WHO CAN SEE THIS REPORT?</Text>
+    <View style={styles.visibilityRow}>
+      {(['private', 'public'] as const).map(value => <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: details.visibility === value }}
+        onPress={() => onChange({ ...details, visibility: value })} style={[styles.visibilityOption, details.visibility === value && styles.visibilitySelected]}>
+        <Text style={details.visibility === value ? styles.visibilitySelectedText : styles.refreshText}>{value === 'private' ? 'Private' : 'Public'}</Text>
+      </Pressable>)}
+    </View>
+    <Text style={styles.privacyText}>Public reports are visible to signed-in members. Friends only is coming later.</Text>
+  </View>;
+}
+
+const CommunityPhoto = memo(function CommunityPhoto({ uri }: { uri: string | null }) {
+  return uri ? <Image source={{ uri }} style={styles.communityPhoto} /> : <View style={styles.communityPhoto} />;
+});
+
+function CommunityScreen({ previewMode, reports, loading, error, busyId, userId, onRefresh, onVote, onFlag }: {
+  previewMode: boolean; reports: Report[]; loading: boolean; error: string; busyId: string | null; userId: string | null;
+  onRefresh: () => void; onVote: (report: Report, value: -1 | 1) => void; onFlag: (report: Report) => void;
+}) {
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
       <View style={styles.communityHeader}>
         <Text style={styles.eyebrow}>LANTERNDIE  /  COMMUNITY</Text>
         <Text style={styles.communityTitle}>Out here, together.</Text>
         <Text style={styles.communityDescription}>
-          Verified field reports and friendly competition will live here.
+          Recent public sightings from the community.
         </Text>
       </View>
       {previewMode ? (
@@ -698,11 +908,40 @@ function CommunityScreen({ previewMode }: { previewMode: boolean }) {
         </View>
         <Text style={styles.sectionIndex}>01 / 02</Text>
       </View>
-      <View style={styles.communityEmpty}>
+      {!previewMode ? <Pressable accessibilityRole="button" onPress={onRefresh} style={styles.refreshButton}><Text style={styles.refreshText}>Refresh feed</Text></Pressable> : null}
+      {error ? <Text accessibilityRole="alert" style={styles.formMessage}>{error}</Text> : null}
+      {loading ? <ActivityIndicator color={palette.red} /> : reports.map(report => <View key={report.id} style={styles.communityCard}>
+        <CommunityPhoto uri={report.photo_url} />
+        <Text style={styles.emptyActivityTitle}>{report.author_name}</Text>
+        <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
+        {report.caption ? <Text style={styles.communityCaption}>{report.caption}</Text> : null}
+        {report.flagged_inaccurate ? <Text style={styles.flagBadge}>Flagged for inaccuracy</Text> : null}
+        <View style={styles.actionRow}>
+          {report.user_id !== userId ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
+              disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
+              <Text style={report.my_vote === 1 ? styles.voteArrowSelected : styles.voteArrow}>↑</Text>
+            </Pressable>
+          ) : null}
+          <Text accessibilityLabel={`Score ${reportScore(report)}`} style={styles.communityScore}>{reportScore(report)}</Text>
+          {report.user_id !== userId ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Downvote report" accessibilityState={{ selected: report.my_vote === -1 }}
+              disabled={Boolean(busyId)} onPress={() => onVote(report, -1)} style={[styles.voteButton, report.my_vote === -1 && styles.voteButtonSelected]}>
+              <Text style={report.my_vote === -1 ? styles.voteArrowSelected : styles.voteArrow}>↓</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {report.user_id !== userId ? <Pressable accessibilityRole="button" accessibilityLabel={report.my_flag ? 'Remove inaccuracy flag' : 'Flag as inaccurate'}
+          disabled={Boolean(busyId)} onPress={() => onFlag(report)} style={styles.flagAction}>
+          <Flag color={palette.red} size={14} strokeWidth={2} />
+          <Text style={report.my_flag ? styles.actionSelected : styles.refreshText}>{report.my_flag ? 'Unflag inaccuracy' : 'Flag inaccuracy'}</Text>
+        </Pressable> : null}
+      </View>)}
+      {!loading && !reports.length ? <View style={styles.communityEmpty}>
         <View style={styles.communityEmptyMark}><Text style={styles.communityEmptyGlyph}>+</Text></View>
         <Text style={styles.emptyActivityTitle}>The field is quiet</Text>
-        <Text style={styles.emptyActivityCopy}>Verified community reports will show up here.</Text>
-      </View>
+        <Text style={styles.emptyActivityCopy}>Public reports will show up here.</Text>
+      </View> : null}
 
       <View style={[styles.sectionHeadingRow, styles.communitySectionGap]}>
         <View>
@@ -928,7 +1167,7 @@ function ProfileScreen({
 
       <View style={styles.accountNote}>
         <Text style={styles.accountNoteTitle}>ACCOUNT & PRIVACY</Text>
-        <Text style={styles.accountNoteText}>Sign-in email: {email}. Your email stays in your account and is not used as your display name. Community profiles and location sharing are not connected yet.</Text>
+        <Text style={styles.accountNoteText}>Sign-in email: {email}. Your email stays private. Public reports show your display name and any place you choose to add.</Text>
       </View>
       <Pressable onPress={onSignOut} style={styles.signOutButton}>
         <Text style={styles.signOutText}>Sign out</Text>
@@ -1043,11 +1282,36 @@ const styles = StyleSheet.create({
   refreshText: { color: palette.red, fontSize: 11, fontWeight: '700' },
   reportRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: palette.paper, borderBottomWidth: 1, borderBottomColor: palette.line, padding: 10 },
   reportPhoto: { width: 64, height: 56, backgroundColor: palette.line },
+  reportCard: { backgroundColor: palette.paper, marginBottom: 8 },
+  reportCopy: { flex: 1 },
+  reportAside: { alignItems: 'flex-end', justifyContent: 'center', gap: 8, minWidth: 32 },
+  reportScore: { color: palette.ink, fontSize: 18, fontWeight: '800' },
+  editPanel: { padding: 12 },
+  reportFields: { padding: 12, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, marginVertical: 10 },
+  reportInputLabel: { color: palette.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.7, marginTop: 10, marginBottom: 6 },
+  reportInput: { borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, color: palette.ink, paddingHorizontal: 10, minHeight: 42, fontSize: 14 },
+  captionInput: { minHeight: 72, paddingTop: 10, textAlignVertical: 'top' },
+  visibilityRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  visibilityOption: { flex: 1, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: palette.red },
+  visibilitySelected: { backgroundColor: palette.red },
+  visibilitySelectedText: { color: palette.white, fontSize: 11, fontWeight: '800' },
   homeFooter: { color: '#93988F', fontSize: 8, fontWeight: '700', letterSpacing: 1.1, textAlign: 'center', marginTop: 25 },
   communityHeader: { paddingTop: 8, paddingBottom: 27 },
   communityTitle: { color: palette.ink, fontSize: 32, lineHeight: 38, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 13 },
   communityDescription: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 9, maxWidth: 320 },
   communityEmpty: { minHeight: 146, padding: 18, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
+  communityCard: { backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, marginBottom: 12 },
+  communityPhoto: { width: '100%', height: 220, backgroundColor: palette.line, marginBottom: 10 },
+  communityCaption: { color: palette.ink, fontSize: 13, marginTop: 8 },
+  flagBadge: { color: palette.red, fontSize: 11, fontWeight: '800', marginTop: 8 },
+  actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginTop: 10 },
+  voteButton: { width: 25, height: 25, borderRadius: 19, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
+  voteButtonSelected: { borderColor: palette.red, backgroundColor: palette.paleRed },
+  voteArrow: { color: palette.ink, fontSize: 12, lineHeight: 18, fontWeight: '700' },
+  voteArrowSelected: { color: palette.red, fontSize: 12, lineHeight: 18, fontWeight: '700' },
+  communityScore: { color: palette.ink, fontSize: 14, fontWeight: '800', textAlign: 'center', minWidth: 38 },
+  flagAction: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 8, marginTop: 2 },
+  actionSelected: { color: palette.red, fontSize: 11, fontWeight: '800' },
   communityEmptyMark: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginBottom: 11 },
   communityEmptyGlyph: { color: palette.red, fontSize: 24, lineHeight: 28, fontWeight: '300' },
   communitySectionGap: { marginTop: 29 },

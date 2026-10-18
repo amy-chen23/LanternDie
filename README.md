@@ -1,10 +1,11 @@
 # LanternDie
 
-LanternDie is an Expo app for submitting private spotted lanternfly photo
-reports. A signed-in user's reports and photos sync between the website and
-Expo Go. Email/password sign-in works in Expo Go and on the website. Google
-sign-in works in a native build and on the website.
-Community rankings, verification, points, and streaks are still placeholders.
+LanternDie is an Expo app for submitting spotted lanternfly photo reports.
+Reports are private by default; users can share them with signed-in members.
+Reports and photos sync between the website and Expo Go. Email/password
+sign-in works in Expo Go and on the website. Google sign-in works in a native
+build and on the website. Rankings, verification, points, and streaks are
+still placeholders.
 
 ## Public repository mirror
 
@@ -77,16 +78,17 @@ mode does not create an account or persist data.
 4. Restart Expo after changing environment variables.
 
 Supabase sessions are persisted locally with AsyncStorage. Report photos are
-stored in a private Supabase Storage bucket; each account can read only its
-own reports. Each submitted image is converted to JPEG and limited to 5 MB.
+stored in a private Supabase Storage bucket. An account can read its own
+reports and public reports from other signed-in members. Each submitted image
+is converted to JPEG and limited to 5 MB.
 Profile pictures are saved in a separate private bucket. Users can add or
 change them from Profile, and the picture appears in the Home shortcut.
 
 Email sign-up asks for a public display name. Google users and existing users
 can set or change theirs from **Profile**. The name is saved in Supabase Auth
 user metadata and appears in the app instead of the sign-in email. Names are
-not unique. Community profiles are not connected yet; when they are added,
-show this display name and keep email private.
+not unique. Public reports show the uploader's display name and never show
+their sign-in email.
 
 ## Website deployment
 
@@ -141,8 +143,13 @@ needed for this local test.
 
 ## Current scope
 
-Selecting a photo previews it locally. **Submit report** uploads it for the
-signed-in account and adds it to Recent activity on both platforms. The
-submitted count updates from saved reports. Location collection, lanternfly
-classification, community review, verified counts, points, and leaderboard
+Selecting a photo previews it locally. Before submitting, users choose an
+observation date, optional general location and caption, and whether the report
+is private or public. They can edit those details later in Recent activity.
+Public reports appear in the Community feed for signed-in members, who can
+upvote, downvote, or flag another member's report as inaccurate. The first flag
+shows an inaccuracy badge; this is not a verification decision. Votes and flags
+can be removed. Device GPS is not collected, and friends-only sharing is not
+available until friendships exist. The submitted count updates from saved
+reports. Lanternfly classification, verified counts, points, and leaderboard
 data are not implemented.
