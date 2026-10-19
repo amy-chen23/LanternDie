@@ -153,3 +153,7 @@ can be removed. Device GPS is not collected, and friends-only sharing is not
 available until friendships exist. The submitted count updates from saved
 reports. Lanternfly classification, verified counts, points, and leaderboard
 data are not implemented.
+
+## Deploying
+- Deployed url: https://lanterndie.vercel.app/
+
