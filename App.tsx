@@ -22,6 +22,8 @@ import { Flag, House, Pencil, UserRound, UsersRound } from 'lucide-react-native'
 import { loadReports, loadPublicReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { supabase } from './lib/supabase';
+import { identifyReport } from './lib/identification';
+import { IdentificationResultsModal, ReportIdentification } from './components/ReportIdentification';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -85,6 +87,8 @@ export default function App() {
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportError, setReportError] = useState('');
   const [savingReport, setSavingReport] = useState(false);
+  const [uploadResultReportId, setUploadResultReportId] = useState<string | null>(null);
+  const [uploadResultError, setUploadResultError] = useState('');
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [profilePhotoOwnerId, setProfilePhotoOwnerId] = useState<string | null>(null);
   const [profilePhotoError, setProfilePhotoError] = useState('');
@@ -97,6 +101,11 @@ export default function App() {
   const displayName = getDisplayName(session?.user.user_metadata?.display_name);
   const savedDisplayName = typeof session?.user.user_metadata?.display_name === 'string'
     ? session.user.user_metadata.display_name.trim() : '';
+
+  useEffect(() => {
+    setUploadResultReportId(null);
+    setUploadResultError('');
+  }, [session?.user.id]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -210,12 +219,25 @@ export default function App() {
     if (!session || !photoAsset || savingReport) return;
     setSavingReport(true);
     setReportError('');
+    setUploadResultError('');
     try {
-      await submitReport(session.user.id, photoAsset, reportDetails);
+      const reportId = await submitReport(session.user.id, photoAsset, reportDetails);
       setPhotoAsset(null);
       setReportDetails(newReportDetails());
       await refreshReports(session.user.id);
+      let identificationError = '';
+      try {
+        await identifyReport(reportId);
+      } catch (error) {
+        identificationError = error instanceof Error ? error.message : 'Report saved. Identification could not finish.';
+      }
+      await refreshReports(session.user.id);
+      if (activeUserId.current === session.user.id) {
+        setUploadResultError(identificationError);
+        setUploadResultReportId(reportId);
+      }
       await refreshCommunity(session.user.id);
+      if (identificationError && activeUserId.current === session.user.id) setReportError(identificationError);
     } catch (error) {
       setReportError(error instanceof Error ? error.message : 'Could not save your report.');
     } finally {
@@ -421,6 +443,10 @@ export default function App() {
               }}
               onCancelEdit={() => { setEditingReportId(null); setReportDetails(newReportDetails()); }}
               onRefreshReports={() => void refreshReports()}
+              onIdentificationChanged={async () => {
+                await refreshReports();
+                await refreshCommunity();
+              }}
               onOpenProfile={() => setScreen('profile')}
             />
           ) : screen === 'community' ? (
@@ -449,6 +475,11 @@ export default function App() {
           if (next === 'community' && session?.user.id) void refreshCommunity(session.user.id);
         }} />
       </View>
+      <IdentificationResultsModal
+        report={visibleReports.find(report => report.id === uploadResultReportId) ?? null}
+        error={uploadResultError}
+        onClose={() => setUploadResultReportId(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -686,6 +717,7 @@ function HomeScreen({
   onEditReport,
   onCancelEdit,
   onRefreshReports,
+  onIdentificationChanged,
   onOpenProfile,
 }: {
   profilePhotoUrl: string | null;
@@ -706,6 +738,7 @@ function HomeScreen({
   onEditReport: (report: Report) => void;
   onCancelEdit: () => void;
   onRefreshReports: () => void;
+  onIdentificationChanged: () => Promise<void>;
   onOpenProfile: () => void;
 }) {
   return (
@@ -790,7 +823,7 @@ function HomeScreen({
         <View style={styles.selectedPhotoNotice}>
           <Text style={styles.selectedPhotoTitle}>PHOTO SELECTED</Text>
           <Text style={styles.selectedPhotoCopy}>
-            {previewMode ? 'This preview stays on your device.' : 'Review the details and audience before submitting.'}
+            {previewMode ? 'This preview stays on your device.' : 'Review the details and audience before submitting. Submitted photos are sent to Roboflow for lanternfly identification.'}
           </Text>
         </View>
       ) : null}
@@ -804,7 +837,7 @@ function HomeScreen({
               onPress={onSubmitReport}
               style={[styles.primaryButton, styles.reportSubmitButton, savingReport && styles.disabled]}
             >
-              {savingReport ? <ActivityIndicator color={palette.white} /> : <Text style={styles.primaryButtonText}>Submit report</Text>}
+              {savingReport ? <><ActivityIndicator color={palette.white} /><Text style={styles.primaryButtonText}>Saving and checking…</Text></> : <Text style={styles.primaryButtonText}>Submit report</Text>}
             </Pressable> : null}
             <Pressable accessibilityRole="button" accessibilityLabel="Cancel report upload" disabled={savingReport}
               onPress={onCancelReportUpload} style={[styles.cancelUploadButton, previewMode && styles.cancelUploadButtonFull, savingReport && styles.disabled]}>
@@ -814,6 +847,7 @@ function HomeScreen({
         </>
       ) : null}
       {reportError ? <Text accessibilityRole="alert" style={styles.formMessage}>{reportError}</Text> : null}
+      {savingReport && !photoUri ? <Text accessibilityLiveRegion="polite" style={styles.formMessage}>Report saved. Checking for lanternflies…</Text> : null}
 
       <View style={styles.privacyNote}>
         <Text style={styles.privacyGlyph}>i</Text>
@@ -848,6 +882,7 @@ function HomeScreen({
                 {!previewMode ? <Pressable accessibilityRole="button" accessibilityLabel="Edit report details" onPress={() => onEditReport(report)}><Text style={styles.refreshText}>Edit</Text></Pressable> : null}
               </View>
             </View>
+            <ReportIdentification report={report} onChanged={onIdentificationChanged} />
             {editingReportId === report.id ? <View style={styles.editPanel}>
               <ReportFields details={reportDetails} onChange={onChangeReportDetails} />
               <Pressable accessibilityRole="button" disabled={savingReport} onPress={onSaveEditedReport} style={[styles.primaryButton, savingReport && styles.disabled]}>
@@ -926,6 +961,7 @@ function CommunityScreen({ previewMode, reports, loading, error, busyId, userId,
       {error ? <Text accessibilityRole="alert" style={styles.formMessage}>{error}</Text> : null}
       {loading ? <ActivityIndicator color={palette.red} /> : reports.map(report => <View key={report.id} style={styles.communityCard}>
         <CommunityPhoto uri={report.photo_url} />
+        <ReportIdentification report={report} />
         <Text style={styles.emptyActivityTitle}>{report.author_name}</Text>
         <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
         {report.caption ? <Text style={styles.communityCaption}>{report.caption}</Text> : null}

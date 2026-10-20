@@ -5,5 +5,5 @@
     "types": ["node"]
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "dist", "web-build", ".expo", "ios", "android"]
+  "exclude": ["node_modules", "dist", "web-build", ".expo", "ios", "android", "supabase/functions"]
 }

@@ -151,8 +151,17 @@ upvote, downvote, or flag another member's report as inaccurate. The first flag
 shows an inaccuracy badge; this is not a verification decision. Votes and flags
 can be removed. Device GPS is not collected, and friends-only sharing is not
 available until friendships exist. The submitted count updates from saved
-reports. Lanternfly classification, verified counts, points, and leaderboard
+reports. Alive/dead classification, verified counts, points, and leaderboard
 data are not implemented.
+
+### Lanternfly identification
+
+This branch adds server-side lanternfly identification after report uploads,
+saved detection confidence and bounding boxes, an automatic results pop-up,
+and retries for failed checks. It requires the new identification migration and
+an `identify-report` Supabase Edge Function configured with the Universe general
+segmentation workflow or a deployed Roboflow detector. See [setup and validation](supabase/README.md#lanternfly-identification).
+Alive/dead classification, verification, and points remain unimplemented.
 
 ## Deploying
 - Deployed url: https://lanterndie.vercel.app/

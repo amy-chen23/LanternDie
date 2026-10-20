@@ -3,6 +3,7 @@ import * as Crypto from 'expo-crypto';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { decode } from 'base64-arraybuffer';
 import { supabase } from './supabase';
+import type { Identification } from './identification';
 
 const bucket = 'report-photos';
 const maxBytes = 5 * 1024 * 1024;
@@ -15,6 +16,7 @@ export type Report = {
   observed_on: string; place_name: string | null; caption: string | null; visibility: Visibility;
   upvotes: number; downvotes: number; flagged_inaccurate: boolean; author_name: string;
   my_vote: -1 | 0 | 1; my_flag: boolean;
+  identification: Identification | null;
 };
 
 function cleanDetails(details: ReportDetails) {
@@ -55,14 +57,19 @@ async function decorateReports(rows: any[], viewerId: string): Promise<Report[]>
   if (!supabase || !rows.length) return [];
   const reportIds = rows.map(row => row.id as string);
   const authorIds = [...new Set(rows.map(row => row.user_id as string))];
-  const [names, votes, flags] = await Promise.all([
+  const [names, votes, flags, identifications] = await Promise.all([
     supabase.from('community_profiles').select('user_id, display_name').in('user_id', authorIds),
     supabase.from('report_votes').select('report_id, value').eq('voter_id', viewerId).in('report_id', reportIds),
     supabase.from('report_flags').select('report_id').eq('flagger_id', viewerId).in('report_id', reportIds),
+    supabase.from('report_identifications')
+      .select('report_id, status, model_id, confidence_threshold, image_width, image_height, detections, error_message, updated_at')
+      .in('report_id', reportIds),
   ]);
   if (names.error) throw names.error;
   if (votes.error) throw votes.error;
   if (flags.error) throw flags.error;
+  if (identifications.error) throw identifications.error;
+  const identificationById = new Map((identifications.data ?? []).map(row => [row.report_id, row as Identification]));
   const nameById = new Map((names.data ?? []).map(row => [row.user_id, row.display_name]));
   const voteById = new Map((votes.data ?? []).map(row => [row.report_id, row.value]));
   const flagIds = new Set((flags.data ?? []).map(row => row.report_id));
@@ -71,6 +78,7 @@ async function decorateReports(rows: any[], viewerId: string): Promise<Report[]>
     author_name: nameById.get(row.user_id) ?? 'Field member',
     my_vote: (voteById.get(row.id) ?? 0) as -1 | 0 | 1,
     my_flag: flagIds.has(row.id),
+    identification: identificationById.get(row.id) ?? null,
   })));
 }
 
@@ -98,7 +106,7 @@ export async function loadReportEngagement(reportId: string): Promise<Pick<Repor
   return data;
 }
 
-export async function submitReport(userId: string, asset: ImagePickerAsset, details: ReportDetails): Promise<void> {
+export async function submitReport(userId: string, asset: ImagePickerAsset, details: ReportDetails): Promise<string> {
   if (!supabase) throw new Error('Supabase is not configured.');
   const cleaned = cleanDetails(details);
   const longestEdge = Math.max(asset.width, asset.height);
@@ -116,11 +124,13 @@ export async function submitReport(userId: string, asset: ImagePickerAsset, deta
     contentType: 'image/jpeg', cacheControl: '0', upsert: false,
   });
   if (uploadError) throw uploadError;
-  const { error: reportError } = await supabase.from('reports').insert({ user_id: userId, photo_path: path, ...cleaned });
+  const { data: report, error: reportError } = await supabase.from('reports')
+    .insert({ user_id: userId, photo_path: path, ...cleaned }).select('id').single();
   if (reportError) {
     await supabase.storage.from(bucket).remove([path]);
     throw reportError;
   }
+  return report.id;
 }
 
 export async function updateReportDetails(reportId: string, details: ReportDetails): Promise<void> {
