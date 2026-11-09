@@ -1,0 +1,68 @@
+[
+  {
+    "width": 8,
+    "height": 3,
+    "crop": {
+      "x": 0,
+      "y": 0,
+      "width": 8,
+      "height": 3
+    },
+    "sha256": "0e55d9297e05687ecd36cd3a3b58a39fb8f288001af83d54a7fc6219615acd44"
+  },
+  {
+    "width": 3,
+    "height": 8,
+    "crop": {
+      "x": 0,
+      "y": 0,
+      "width": 3,
+      "height": 8
+    },
+    "sha256": "4c0baaf786f4d9ff1ad36bbff4d4da3d259f8acba318601b623bf91b8988a60e"
+  },
+  {
+    "width": 224,
+    "height": 224,
+    "crop": {
+      "x": 0,
+      "y": 0,
+      "width": 224,
+      "height": 224
+    },
+    "sha256": "e7a5b0251ceaf928471f506cce0c0eba2341a31835dc953065ae13b5ee3b60a9"
+  },
+  {
+    "width": 511,
+    "height": 307,
+    "crop": {
+      "x": 7,
+      "y": 13,
+      "width": 480,
+      "height": 280
+    },
+    "sha256": "7c670b0c25dc358e0346adb42c4d52e3653202fd9a100d1a59d23f5d5750236d"
+  },
+  {
+    "width": 1600,
+    "height": 1200,
+    "crop": {
+      "x": 100,
+      "y": 200,
+      "width": 1300,
+      "height": 800
+    },
+    "sha256": "cb83e1bbbdeeae0b1f962bae533f4482561db1f5e2c1630ce1655c96f4a90075"
+  },
+  {
+    "width": 1,
+    "height": 4,
+    "crop": {
+      "x": 0,
+      "y": 0,
+      "width": 1,
+      "height": 4
+    },
+    "sha256": "ce08ccaeb8235fd1d894660aab23b604e5bbbdb862f438de4d7859068062fc8e"
+  }
+]

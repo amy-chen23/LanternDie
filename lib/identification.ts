@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { assessReportLocally } from './death-assessment';
 import type { Detection } from '../supabase/functions/identify-report/detection';
 
 export type Identification = {
@@ -19,4 +20,5 @@ export async function identifyReport(reportId: string): Promise<void> {
   if (error || data?.error) {
     throw new Error('Your report is saved, but identification could not finish. Use Retry identification in Recent activity.');
   }
+  await assessReportLocally(reportId);
 }

@@ -14,7 +14,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "LanternDie uses your photo library so you can choose lanternfly photos and a profile picture."
-      }
+      },
+      "bundleIdentifier": "com.hpatel2004.lanterndie"
     },
     "android": {
       "permissions": [
@@ -22,13 +23,16 @@
       ]
     },
     "plugins": [
+      "onnxruntime-react-native",
       "expo-web-browser",
       [
         "expo-splash-screen",
         {
           "backgroundColor": "#f4f2e8"
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-status-bar"
     ]
   }
 }

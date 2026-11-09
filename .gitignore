@@ -8,3 +8,8 @@ web-build/
 !.env.example
 .agents
 supabase/.temp/
+confidence-training/
+__pycache__/
+*.pyc
+ios/
+android/

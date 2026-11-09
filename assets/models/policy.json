@@ -1,0 +1,7 @@
+{
+  "modelVersion": "lanternfly-dead-v1",
+  "modelSha256": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d",
+  "threshold": 0.98,
+  "automaticVerificationEnabled": false,
+  "preprocessingVersion": "padded-rgb-pillow-bilinear-v1"
+}

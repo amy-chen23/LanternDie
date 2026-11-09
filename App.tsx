@@ -19,11 +19,12 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
 import { Flag, House, Pencil, UserRound, UsersRound } from 'lucide-react-native';
-import { loadReports, loadPublicReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
+import { loadReports, loadPublicReports, loadVerificationReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { supabase } from './lib/supabase';
 import { identifyReport } from './lib/identification';
 import { IdentificationResultsModal, ReportIdentification } from './components/ReportIdentification';
+import { VerificationVoting } from './components/DeathAssessment';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -78,6 +79,7 @@ export default function App() {
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [publicReports, setPublicReports] = useState<Report[]>([]);
+  const [verificationReports, setVerificationReports] = useState<Report[]>([]);
   const [publicReportsViewerId, setPublicReportsViewerId] = useState<string | null>(null);
   const [communityLoading, setCommunityLoading] = useState(false);
   const [communityError, setCommunityError] = useState('');
@@ -134,6 +136,7 @@ export default function App() {
 
   useEffect(() => {
     setPublicReports([]);
+    setVerificationReports([]);
     setPublicReportsViewerId(null);
     setCommunityError('');
     if (session?.user.id) void refreshCommunity(session.user.id);
@@ -184,9 +187,10 @@ export default function App() {
     setCommunityLoading(true);
     setCommunityError('');
     try {
-      const next = await loadPublicReports(userId);
+      const [next, reviewQueue] = await Promise.all([loadPublicReports(userId), loadVerificationReports(userId)]);
       if (activeUserId.current === userId) {
         setPublicReports(next);
+        setVerificationReports(reviewQueue);
         setPublicReportsViewerId(userId);
       }
     } catch (error) {
@@ -450,9 +454,10 @@ export default function App() {
               onOpenProfile={() => setScreen('profile')}
             />
           ) : screen === 'community' ? (
-            <CommunityScreen previewMode={previewMode} reports={visiblePublicReports} loading={communityLoading}
+            <CommunityScreen previewMode={previewMode} reports={visiblePublicReports}
+              verificationReports={publicReportsViewerId === session?.user.id ? verificationReports : []} loading={communityLoading}
               error={communityError} busyId={communityBusyId} userId={session?.user.id ?? null}
-              onRefresh={() => void refreshCommunity()} onVote={(report, value) => void changeVote(report, value)}
+              onRefresh={() => refreshCommunity()} onVote={(report, value) => void changeVote(report, value)}
               onFlag={(report) => void changeFlag(report)} />
           ) : (
             <ProfileScreen
@@ -823,7 +828,7 @@ function HomeScreen({
         <View style={styles.selectedPhotoNotice}>
           <Text style={styles.selectedPhotoTitle}>PHOTO SELECTED</Text>
           <Text style={styles.selectedPhotoCopy}>
-            {previewMode ? 'This preview stays on your device.' : 'Review the details and audience before submitting. Submitted photos are sent to Roboflow for lanternfly identification.'}
+            {previewMode ? 'This preview stays on your device.' : 'Review the details and audience before submitting. Photos are sent to Roboflow to find lanternflies, then detected insects are assessed on your phone.'}
           </Text>
         </View>
       ) : null}
@@ -930,10 +935,13 @@ const CommunityPhoto = memo(function CommunityPhoto({ uri }: { uri: string | nul
   return uri ? <Image source={{ uri }} style={styles.communityPhoto} /> : <View style={styles.communityPhoto} />;
 });
 
-function CommunityScreen({ previewMode, reports, loading, error, busyId, userId, onRefresh, onVote, onFlag }: {
-  previewMode: boolean; reports: Report[]; loading: boolean; error: string; busyId: string | null; userId: string | null;
-  onRefresh: () => void; onVote: (report: Report, value: -1 | 1) => void; onFlag: (report: Report) => void;
+function CommunityScreen({ previewMode, reports, verificationReports, loading, error, busyId, userId, onRefresh, onVote, onFlag }: {
+  previewMode: boolean; reports: Report[]; verificationReports: Report[]; loading: boolean; error: string; busyId: string | null; userId: string | null;
+  onRefresh: () => Promise<void>; onVote: (report: Report, value: -1 | 1) => void; onFlag: (report: Report) => void;
 }) {
+  const [verificationOnly, setVerificationOnly] = useState(false);
+  const reviewReports = verificationReports;
+  const displayed = verificationOnly ? reviewReports : reports;
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
       <View style={styles.communityHeader}>
@@ -958,10 +966,15 @@ function CommunityScreen({ previewMode, reports, loading, error, busyId, userId,
         <Text style={styles.sectionIndex}>01 / 02</Text>
       </View>
       {!previewMode ? <Pressable accessibilityRole="button" onPress={onRefresh} style={styles.refreshButton}><Text style={styles.refreshText}>Refresh feed</Text></Pressable> : null}
+      <View style={styles.actionRow}>
+        <Pressable accessibilityRole="button" accessibilityState={{ selected: !verificationOnly }} onPress={() => setVerificationOnly(false)} style={styles.refreshButton}><Text style={styles.refreshText}>All sightings</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityState={{ selected: verificationOnly }} onPress={() => setVerificationOnly(true)} style={styles.refreshButton}><Text style={styles.refreshText}>Needs your verification ({reviewReports.length})</Text></Pressable>
+      </View>
       {error ? <Text accessibilityRole="alert" style={styles.formMessage}>{error}</Text> : null}
-      {loading ? <ActivityIndicator color={palette.red} /> : reports.map(report => <View key={report.id} style={styles.communityCard}>
+      {loading ? <ActivityIndicator color={palette.red} /> : displayed.map(report => <View key={report.id} style={styles.communityCard}>
         <CommunityPhoto uri={report.photo_url} />
         <ReportIdentification report={report} />
+        <VerificationVoting report={report} userId={userId} onChanged={onRefresh} />
         <Text style={styles.emptyActivityTitle}>{report.author_name}</Text>
         <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
         {report.caption ? <Text style={styles.communityCaption}>{report.caption}</Text> : null}
@@ -987,9 +1000,9 @@ function CommunityScreen({ previewMode, reports, loading, error, busyId, userId,
           <Text style={report.my_flag ? styles.actionSelected : styles.refreshText}>{report.my_flag ? 'Unflag inaccuracy' : 'Flag inaccuracy'}</Text>
         </Pressable> : null}
       </View>)}
-      {!loading && !reports.length ? <View style={styles.communityEmpty}>
+      {!loading && !displayed.length ? <View style={styles.communityEmpty}>
         <View style={styles.communityEmptyMark}><Text style={styles.communityEmptyGlyph}>+</Text></View>
-        <Text style={styles.emptyActivityTitle}>The field is quiet</Text>
+        <Text style={styles.emptyActivityTitle}>{verificationOnly ? 'No sightings need your review' : 'The field is quiet'}</Text>
         <Text style={styles.emptyActivityCopy}>Public reports will show up here.</Text>
       </View> : null}
 

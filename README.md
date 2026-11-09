@@ -43,7 +43,7 @@ of the source `main` history before enabling the mirror.
 	```
 
 4. Install **Expo Go** on your iPhone or Android phone. This project uses Expo
-	SDK 54 to work with the iPhone App Store version. Keep the phone and computer
+	SDK 58 to work with the current iPhone App Store version. Keep the phone and computer
 	connected to the same Wi-Fi network. On a physical iPhone, sign in to Expo
 	Go and Expo CLI with the same free Expo account (`npx expo login`).
 5. Start the app in LAN mode:
@@ -151,8 +151,13 @@ upvote, downvote, or flag another member's report as inaccurate. The first flag
 shows an inaccuracy badge; this is not a verification decision. Votes and flags
 can be removed. Device GPS is not collected, and friends-only sharing is not
 available until friendships exist. The submitted count updates from saved
-reports. Alive/dead classification, verified counts, points, and leaderboard
-data are not implemented.
+reports. Automatic verification, verified counts, points, and leaderboard
+data are not implemented. Native builds now include experimental on-phone
+alive/dead scoring after Roboflow detection, plus a separate community
+verification queue with per-insect labels. All scores remain in shadow mode;
+they do not automatically verify reports or award points. See
+[integration and rollout instructions](ml/INTEGRATION.md) for the required
+database migration and native build setup.
 
 ### Lanternfly identification
 
@@ -161,7 +166,20 @@ saved detection confidence and bounding boxes, an automatic results pop-up,
 and retries for failed checks. It requires the new identification migration and
 an `identify-report` Supabase Edge Function configured with the Universe general
 segmentation workflow or a deployed Roboflow detector. See [setup and validation](supabase/README.md#lanternfly-identification).
-Alive/dead classification, verification, and points remain unimplemented.
+Experimental native alive/dead scoring and community labels are implemented on
+this branch. Automatic verification and points remain disabled. See the
+[branch checkpoint](docs/MODEL_IMPLEMENTATION_CHECKPOINT.md) for tested behavior,
+model limitations, deployment status, and remaining work.
+
+## Alive/dead training experiment
+
+The local `confidence-training/alive/` and `confidence-training/dead/` folders
+contain the private training images and are ignored by Git. See
+[local training instructions](ml/README.md) for auditing photos, preparing
+Roboflow crops, reviewing them, and fitting a frozen MobileNetV3-Small baseline.
+Generated crops, recovery checkpoints, and training artifacts stay in that ignored
+directory. The deployable ONNX bundle is copied into `assets/models/` and included
+in Git. Training alone does not deploy scores or change report acceptance.
 
 ## Deploying
 - Deployed url: https://lanterndie.vercel.app/

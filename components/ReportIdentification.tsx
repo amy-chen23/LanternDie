@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { identifyReport } from '../lib/identification';
 import type { Report } from '../lib/reports';
+import { DeathAssessmentStatus } from './DeathAssessment';
 
 function identificationTitle(report: Report) {
   const result = report.identification;
@@ -33,7 +34,7 @@ export function IdentificationResultsModal({ report, onClose, error }: {
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={styles.dialogContent}>
-          <Text style={styles.note}>Your report is saved. Alive/dead status has not been assessed.</Text>
+          <Text style={styles.note}>Your report is saved. Lanternfly detection and community verification are separate checks.</Text>
           {report.photo_url ? <View style={{ width: '100%', aspectRatio: hasBoxes ? result.image_width! / result.image_height! : 4 / 3 }}>
             <Image source={{ uri: report.photo_url }} resizeMode={hasBoxes ? 'stretch' : 'contain'} style={StyleSheet.absoluteFill} accessibilityLabel="Submitted photo with numbered lanternfly detection boxes" />
             {hasBoxes ? result.detections.map((box, index) => <View key={index} pointerEvents="none" style={[styles.box, {
@@ -88,7 +89,7 @@ export function ReportIdentification({ report, onChanged }: {
 
   return <View style={styles.section}>
     <Text accessibilityLiveRegion="polite" style={styles.title}>{busy ? 'Checking for lanternflies…' : title}</Text>
-    <Text style={styles.note}>Alive/dead status has not been assessed.</Text>
+    <DeathAssessmentStatus report={report} onChanged={onChanged} />
     {result?.status === 'failed' && result.error_message ? <Text style={styles.note}>{result.error_message}</Text> : null}
     {processing ? <Text style={styles.note}>Refresh to see the result. If interrupted, retry after two minutes.</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
