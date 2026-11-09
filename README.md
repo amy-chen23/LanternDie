@@ -152,8 +152,15 @@ shows an inaccuracy badge; this is not a verification decision. Votes and flags
 can be removed. Device GPS is not collected, and friends-only sharing is not
 available until friendships exist. The submitted count updates from saved
 reports. Lanternfly classification, verified counts, points, and leaderboard
-data are not implemented.
+data are not connected to a verified backend yet. Preview mode includes clearly
+labeled sample weekly and monthly rankings for layout testing; they are not
+based on reports, community likes, or classifier scores.
+
+The weekly and monthly top-killer, Local Star, Kill Streak, and Best Streak
+badge icon slots are ready for PNGs under `assets/badges/`: `weekly-top-killer.png`,
+`monthly-top-killer.png`, `local-star.png`, `kill-streak.png`, and `best-streak.png`.
+Local Star's five-mile radius is a design placeholder until reliable location
+data is supported; the app does not currently request or use device location.
 
 ## Deploying
 - Deployed url: https://lanterndie.vercel.app/
-
