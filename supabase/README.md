@@ -19,6 +19,13 @@ are downloaded with the member's session so a visibility change affects new
 requests immediately. The app needs this migration before using the new upload
 form or community feed.
 
+Apply `migrations/20261109000000_raw_upload_leaderboard.sql` to enable the
+temporary weekly and monthly rankings. This authenticated RPC counts saved
+report rows by their creation date; each upload temporarily counts as one
+verified kill. Votes, flags, and classifier output are not included. Replace
+this function's counting rule with the real verification source when it is
+available.
+
 To check access controls, create two test accounts, upload and insert a report
 as the first account, then verify that the second account cannot select the
 report or read its photo. Verify that a signed-out client cannot read either.
