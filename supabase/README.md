@@ -151,6 +151,15 @@ unwrapping, segmentation boxes, and invalid configuration. Live inference requir
 your authorized workflow/model and key and is not mocked as a successful
 deployment.
 
+## Temporary leaderboard
+
+Apply `migrations/20261109000000_raw_upload_leaderboard.sql` to enable the
+temporary weekly and monthly rankings. This authenticated RPC counts saved
+report rows by their creation date; each upload temporarily counts as one
+verified kill. Votes, flags, and classifier output are not included. Replace
+this function's counting rule with the real verification source when it is
+available.
+
 To check access controls, create two test accounts, upload and insert a report
 as the first account, then verify that the second account cannot select the
 report or read its photo. Verify that a signed-out client cannot read either.

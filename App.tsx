@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  type ImageSourcePropType,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,9 +19,10 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
-import { Flag, House, Pencil, UserRound, UsersRound } from 'lucide-react-native';
+import { Flag, House, Pencil, Trophy, UserRound, UsersRound } from 'lucide-react-native';
 import { loadReports, loadPublicReports, loadVerificationReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
+import { loadLeaderboard, type LeaderboardEntry, type LeaderboardPeriod } from './lib/leaderboard';
 import { supabase } from './lib/supabase';
 import { identifyReport } from './lib/identification';
 import { IdentificationResultsModal, ReportIdentification } from './components/ReportIdentification';
@@ -40,8 +42,28 @@ const palette = {
   white: '#FFFFFF',
 };
 
-type Screen = 'home' | 'community' | 'profile';
+type Screen = 'home' | 'community' | 'leaderboard' | 'profile';
 type AuthMode = 'sign-in' | 'sign-up';
+const previewLeaderboardRankings: Record<LeaderboardPeriod, LeaderboardEntry[]> = {
+  weekly: [
+    { name: 'Maya Chen', initials: 'MC', verifiedKills: 12, avatarUrl: null },
+    { name: 'Jordan Lee', initials: 'JL', verifiedKills: 9, avatarUrl: null },
+    { name: 'Sam Rivera', initials: 'SR', verifiedKills: 7, avatarUrl: null },
+  ],
+  monthly: [
+    { name: 'Jordan Lee', initials: 'JL', verifiedKills: 38, avatarUrl: null },
+    { name: 'Maya Chen', initials: 'MC', verifiedKills: 31, avatarUrl: null },
+    { name: 'Avery Patel', initials: 'AP', verifiedKills: 24, avatarUrl: null },
+  ],
+};
+
+const badgeIcons: Record<string, ImageSourcePropType> = {
+  'Weekly Top Killer': require('./assets/weekly-top-killer.png'),
+  'Monthly Top Killer': require('./assets/monthly-top-killer.png'),
+  'Local Star': require('./assets/local-star.png'),
+  'Kill Streak': require('./assets/kill-streak.png'),
+  'Best Streak': require('./assets/best-streak.png'),
+};
 
 function todayDate(): string {
   const now = new Date();
@@ -458,7 +480,9 @@ export default function App() {
               verificationReports={publicReportsViewerId === session?.user.id ? verificationReports : []} loading={communityLoading}
               error={communityError} busyId={communityBusyId} userId={session?.user.id ?? null}
               onRefresh={() => refreshCommunity()} onVote={(report, value) => void changeVote(report, value)}
-              onFlag={(report) => void changeFlag(report)} />
+              onFlag={(report) => void changeFlag(report)} onOpenLeaderboard={() => setScreen('leaderboard')} />
+          ) : screen === 'leaderboard' ? (
+            <LeaderboardScreen previewMode={previewMode} />
           ) : (
             <ProfileScreen
               email={session?.user.email ?? 'Preview account'}
@@ -599,7 +623,7 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
       >
         <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled">
           <View style={styles.authTopline}>
-            <Text style={styles.brandMark}>LD</Text>
+            <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.appLogo} />
             <Text style={styles.eyebrow}>COMMUNITY FIELD LOG</Text>
           </View>
           <View style={styles.authHero}>
@@ -750,7 +774,10 @@ function HomeScreen({
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
       <View style={styles.homeHeader}>
         <View>
-          <Text style={styles.eyebrow}>LANTERNDIE  /  FIELD LOG</Text>
+          <View style={styles.homeBrandRow}>
+            <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.homeLogo} />
+            <Text style={styles.homeBrandText}>LANTERNDIE  /  FIELD LOG</Text>
+          </View>
           <Text style={styles.greeting}>Good to see you.</Text>
         </View>
         <Pressable accessibilityLabel="Open profile" onPress={onOpenProfile} style={styles.avatarButton}>
@@ -935,9 +962,10 @@ const CommunityPhoto = memo(function CommunityPhoto({ uri }: { uri: string | nul
   return uri ? <Image source={{ uri }} style={styles.communityPhoto} /> : <View style={styles.communityPhoto} />;
 });
 
-function CommunityScreen({ previewMode, reports, verificationReports, loading, error, busyId, userId, onRefresh, onVote, onFlag }: {
+function CommunityScreen({ previewMode, reports, verificationReports, loading, error, busyId, userId, onRefresh, onVote, onFlag, onOpenLeaderboard }: {
   previewMode: boolean; reports: Report[]; verificationReports: Report[]; loading: boolean; error: string; busyId: string | null; userId: string | null;
   onRefresh: () => Promise<void>; onVote: (report: Report, value: -1 | 1) => void; onFlag: (report: Report) => void;
+  onOpenLeaderboard: () => void;
 }) {
   const [verificationOnly, setVerificationOnly] = useState(false);
   const reviewReports = verificationReports;
@@ -945,6 +973,7 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
       <View style={styles.communityHeader}>
+        <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.pageLogo} />
         <Text style={styles.eyebrow}>LANTERNDIE  /  COMMUNITY</Text>
         <Text style={styles.communityTitle}>Out here, together.</Text>
         <Text style={styles.communityDescription}>
@@ -1013,15 +1042,176 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
         </View>
         <Text style={styles.sectionIndex}>02 / 02</Text>
       </View>
-      <View style={styles.leaderboardEmpty}>
-        <Text style={styles.leaderboardIndex}>01</Text>
-        <View style={styles.leaderboardCopy}>
-          <Text style={styles.leaderboardTitle}>Rankings start with verified reports</Text>
-          <Text style={styles.emptyActivityCopy}>No scores to show yet.</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="View leaderboard" onPress={onOpenLeaderboard} style={({ pressed }) => [styles.leaderboardLink, pressed && styles.pressed]}>
+        <View style={styles.leaderboardLinkIcon}>
+          <Image accessibilityElementsHidden source={require('./assets/star.png')} resizeMode="contain" style={styles.communityLeaderboardIcon} />
         </View>
-      </View>
+        <View style={styles.leaderboardCopy}>
+          <Text style={styles.leaderboardTitle}>Weekly and monthly verified rankings</Text>
+          <Text style={styles.emptyActivityCopy}>Saved reports currently count toward the temporary rankings.</Text>
+        </View>
+        <Text style={styles.leaderboardArrow}>›</Text>
+      </Pressable>
       <Text style={styles.homeFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
     </ScrollView>
+  );
+}
+
+function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
+  const [period, setPeriod] = useState<LeaderboardPeriod>('weekly');
+  const [rankings, setRankings] = useState<LeaderboardEntry[]>([]);
+  const [loadingRankings, setLoadingRankings] = useState(!previewMode);
+  const [rankingError, setRankingError] = useState('');
+  const winnerTitle = period === 'weekly' ? 'WEEKLY TOP KILLER' : 'MONTHLY TOP KILLER';
+
+  useEffect(() => {
+    if (previewMode) {
+      setRankings(previewLeaderboardRankings[period]);
+      setLoadingRankings(false);
+      setRankingError('');
+      return;
+    }
+
+    let active = true;
+    setLoadingRankings(true);
+    setRankingError('');
+    loadLeaderboard(period)
+      .then(entries => {
+        if (active) setRankings(entries);
+      })
+      .catch(error => {
+        if (active) setRankingError(error instanceof Error ? error.message : 'Could not load leaderboard.');
+      })
+      .finally(() => {
+        if (active) setLoadingRankings(false);
+      });
+    return () => { active = false; };
+  }, [period, previewMode]);
+
+  return (
+    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.leaderboardHeader}>
+        <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.pageLogo} />
+        <Text style={styles.eyebrow}>LANTERNDIE  /  RANKINGS</Text>
+        <Text style={styles.leaderboardPageTitle}>Leaderboard</Text>
+        <Text style={styles.communityDescription}>A temporary ranking based on saved report uploads.</Text>
+      </View>
+
+      <View style={styles.previewBanner}>
+        <Text style={styles.previewBannerText}>{previewMode ? 'PREVIEW SAMPLE' : 'TEMPORARY RANKING'}</Text>
+        <Text style={styles.previewBannerDetail}>
+          {previewMode
+            ? 'Sample rankings for layout testing; not connected to reports.'
+            : 'Each saved report currently counts as one verified kill. True verification will replace this temporary rule.'}
+        </Text>
+      </View>
+
+      <View style={styles.leaderboardPanel}>
+        <View style={styles.leaderboardFilters}>
+          {(['weekly', 'monthly'] as const).map(option => {
+            const selected = period === option;
+            return (
+              <Pressable
+                key={option}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                onPress={() => setPeriod(option)}
+                style={[styles.leaderboardFilter, selected && styles.leaderboardFilterSelected]}
+              >
+                <Image
+                  accessibilityElementsHidden
+                  source={badgeIcons[option === 'weekly' ? 'Weekly Top Killer' : 'Monthly Top Killer']}
+                  resizeMode="contain"
+                  style={styles.leaderboardFilterIcon}
+                />
+                <Text style={[styles.leaderboardFilterText, selected && styles.leaderboardFilterTextSelected]}>
+                  {option === 'weekly' ? 'Weekly' : 'Monthly'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={styles.leaderboardPeriodHeading}>
+          <View>
+            <Text style={styles.sectionEyebrow}>{period === 'weekly' ? 'THIS WEEK' : 'THIS MONTH'}</Text>
+            <Text style={styles.sectionTitle}>{period === 'weekly' ? 'Weekly leaders' : 'Monthly leaders'}</Text>
+          </View>
+          <Image
+            accessibilityLabel={period === 'weekly' ? 'Weekly Top Killer badge' : 'Monthly Top Killer badge'}
+            source={badgeIcons[period === 'weekly' ? 'Weekly Top Killer' : 'Monthly Top Killer']}
+            resizeMode="contain"
+            style={styles.leaderboardPeriodIcon}
+          />
+        </View>
+
+        {rankingError ? (
+          <Text accessibilityRole="alert" style={styles.formMessage}>{rankingError}</Text>
+        ) : loadingRankings ? (
+          <ActivityIndicator color={palette.ink} />
+        ) : rankings.length ? rankings.map((entry, index) => (
+          <View key={`${period}-${entry.name}`} style={styles.leaderboardRow}>
+            <Text style={styles.leaderboardRank}>{String(index + 1).padStart(2, '0')}</Text>
+            {entry.avatarUrl ? (
+              <Image source={{ uri: entry.avatarUrl }} style={styles.leaderboardAvatar} />
+            ) : (
+              <View style={styles.leaderboardAvatar}><Text style={styles.leaderboardAvatarText}>{entry.initials}</Text></View>
+            )}
+            <View style={styles.leaderboardDetails}>
+              <Text numberOfLines={1} style={styles.leaderboardName}>{entry.name}</Text>
+              {index === 0 ? (
+                <View style={styles.winnerBadge}>
+                  <BadgeIconSlot size={18} source={badgeIcons[winnerTitle === 'WEEKLY TOP KILLER' ? 'Weekly Top Killer' : 'Monthly Top Killer']} />
+                  <Text style={styles.winnerBadgeText}>{winnerTitle}</Text>
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.leaderboardCount}>
+              <Text style={styles.leaderboardCountValue}>{entry.verifiedKills}</Text>
+              <Text style={styles.leaderboardCountLabel}>{previewMode ? 'SAMPLE' : 'UPLOADS'}</Text>
+            </View>
+          </View>
+        )) : (
+          <View style={styles.leaderboardEmptyState}>
+            <View style={styles.leaderboardEmptyIcon}><Trophy color={palette.red} size={22} strokeWidth={1.8} /></View>
+            <Text style={styles.leaderboardEmptyTitle}>No uploads in this period</Text>
+            <Text style={styles.leaderboardEmptyCopy}>Rankings appear here after reports are saved.</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={[styles.sectionHeadingRow, styles.communitySectionGap]}>
+        <View>
+          <Text style={styles.sectionEyebrow}>FIELD BADGES</Text>
+          <Text style={styles.sectionTitle}>More ways to shine</Text>
+        </View>
+      </View>
+      <BadgePreviewRow title="Local Star" description="Top verified contributor within 5 miles. Location matching is not available yet." />
+      <BadgePreviewRow title="Kill Streak" description="Recognizes consecutive days with verified kills." />
+      <BadgePreviewRow title="Best Streak" description="Your personal record for consecutive verified days." />
+      <Text style={styles.homeFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
+    </ScrollView>
+  );
+}
+
+function BadgeIconSlot({ size = 34, source }: { size?: number; source?: ImageSourcePropType }) {
+  return source ? (
+    <Image accessibilityElementsHidden source={source} resizeMode="contain" style={{ width: size, height: size }} />
+  ) : (
+    <View accessibilityElementsHidden style={[styles.badgeIconSlot, { width: size, height: size }]} />
+  );
+}
+
+function BadgePreviewRow({ title, description, status = 'SOON' }: { title: string; description: string; status?: string }) {
+  return (
+    <View style={styles.badgePreviewRow}>
+      <BadgeIconSlot source={badgeIcons[title]} />
+      <View style={styles.badgeCopy}>
+        <Text style={styles.badgeTitle}>{title}</Text>
+        <Text style={styles.badgeDescription}>{description}</Text>
+      </View>
+      <Text style={styles.badgeLocked}>{status}</Text>
+    </View>
   );
 }
 
@@ -1035,6 +1225,7 @@ function BottomNavigation({
   const tabs = [
     { screen: 'home' as const, label: 'Home', Icon: House },
     { screen: 'community' as const, label: 'Community', Icon: UsersRound },
+    { screen: 'leaderboard' as const, label: 'Leaderboard', Icon: Trophy },
     { screen: 'profile' as const, label: 'My Profile', Icon: UserRound },
   ];
 
@@ -1051,7 +1242,7 @@ function BottomNavigation({
             onPress={() => onSelect(tabScreen)}
             style={styles.tabButton}
           >
-            <Icon color={color} size={20} strokeWidth={active ? 2.4 : 1.8} />
+            <Icon color={color} size={18} strokeWidth={active ? 2.4 : 1.8} />
             <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
           </Pressable>
         );
@@ -1120,6 +1311,7 @@ function ProfileScreen({
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
       <View style={styles.profileHeader}>
+        <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.pageLogo} />
         <Text style={styles.eyebrow}>YOUR ACCOUNT</Text>
       </View>
       <Text style={styles.profileTitle}>Profile</Text>
@@ -1219,14 +1411,12 @@ function ProfileScreen({
       </View>
 
       <Text style={[styles.sectionEyebrow, styles.badgesEyebrow]}>BADGES</Text>
-      <View style={styles.badgeRow}>
-        <View style={styles.badgeSeal}><Text style={styles.badgeSealText}>01</Text></View>
-        <View style={styles.badgeCopy}>
-          <Text style={styles.badgeTitle}>First report</Text>
-          <Text style={styles.badgeDescription}>Log your first verified lanternfly.</Text>
-        </View>
-        <Text style={styles.badgeLocked}>LOCKED</Text>
-      </View>
+      <BadgePreviewRow title="First report" description="Log your first verified lanternfly." status="LOCKED" />
+      <BadgePreviewRow title="Weekly Top Killer" description="Most verified kills this week." />
+      <BadgePreviewRow title="Monthly Top Killer" description="Most verified kills this month." />
+      <BadgePreviewRow title="Local Star" description="Top verified contributor within 5 miles. Location matching is not available yet." />
+      <BadgePreviewRow title="Kill Streak" description="Consecutive days with verified kills." />
+      <BadgePreviewRow title="Best Streak" description="Your personal record for consecutive verified days." />
 
       <View style={styles.accountNote}>
         <Text style={styles.accountNoteTitle}>ACCOUNT & PRIVACY</Text>
@@ -1253,15 +1443,20 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: palette.background },
   appLayout: { flex: 1 },
   screenContainer: { flex: 1 },
-  tabBar: { minHeight: 62, flexDirection: 'row', backgroundColor: palette.white, borderTopWidth: 1, borderTopColor: palette.line, paddingHorizontal: 8, paddingTop: 7, paddingBottom: 4 },
-  tabButton: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 3 },
-  tabLabel: { color: palette.muted, fontSize: 10, fontWeight: '600' },
+  tabBar: { minHeight: 62, flexDirection: 'row', backgroundColor: palette.white, borderTopWidth: 1, borderTopColor: palette.line, paddingHorizontal: 4, paddingTop: 7, paddingBottom: 4 },
+  tabButton: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 3, paddingVertical: 3 },
+  tabLabel: { color: palette.muted, fontSize: 9, fontWeight: '600' },
   tabLabelActive: { color: palette.red, fontWeight: '800' },
   loadingScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.background },
   loadingText: { marginTop: 14, color: palette.muted, fontSize: 14 },
   authKeyboard: { flex: 1 },
   authScroll: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 18, paddingBottom: 28 },
   authTopline: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  appLogo: { width: 42, height: 42 },
+  pageLogo: { width: 48, height: 48, marginBottom: 8 },
+  homeLogo: { width: 48, height: 48 },
+  homeBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  homeBrandText: { color: palette.muted, fontSize: 12, fontWeight: '700', letterSpacing: 1.5 },
   brandMark: { width: 34, height: 34, borderRadius: 17, overflow: 'hidden', textAlign: 'center', textAlignVertical: 'center', backgroundColor: palette.black, color: palette.red, fontSize: 12, fontWeight: '800' },
   eyebrow: { color: palette.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.4 },
   authHero: { paddingTop: 48, paddingBottom: 28 },
@@ -1383,10 +1578,40 @@ const styles = StyleSheet.create({
   communityEmptyMark: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginBottom: 11 },
   communityEmptyGlyph: { color: palette.red, fontSize: 24, lineHeight: 28, fontWeight: '300' },
   communitySectionGap: { marginTop: 29 },
-  leaderboardEmpty: { minHeight: 78, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, paddingHorizontal: 15 },
-  leaderboardIndex: { width: 42, color: palette.red, fontSize: 21, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' },
+  leaderboardLink: { minHeight: 78, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, paddingHorizontal: 12 },
+  leaderboardLinkIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginRight: 11 },
+  communityLeaderboardIcon: { width: 30, height: 30 },
   leaderboardCopy: { flex: 1 },
   leaderboardTitle: { color: palette.ink, fontSize: 12, fontWeight: '700' },
+  leaderboardArrow: { color: palette.red, fontSize: 24, paddingLeft: 8 },
+  leaderboardHeader: { paddingTop: 8, paddingBottom: 23 },
+  leaderboardPageTitle: { color: palette.ink, fontSize: 34, lineHeight: 40, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 13 },
+  leaderboardPanel: { backgroundColor: '#AAB07A', padding: 14, marginBottom: 28 },
+  leaderboardFilters: { flexDirection: 'row', padding: 3, backgroundColor: 'rgba(255,255,255,0.55)', marginBottom: 20 },
+  leaderboardFilter: { flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  leaderboardFilterSelected: { backgroundColor: palette.black },
+  leaderboardFilterIcon: { width: 25, height: 25 },
+  leaderboardFilterText: { color: palette.muted, fontSize: 12, fontWeight: '700' },
+  leaderboardFilterTextSelected: { color: palette.white },
+  leaderboardPeriodHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 },
+  leaderboardPeriodIcon: { width: 42, height: 42 },
+  leaderboardRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderBottomWidth: 1, borderBottomColor: palette.line, paddingHorizontal: 11, gap: 9 },
+  leaderboardRank: { width: 23, color: palette.red, fontSize: 17, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' },
+  leaderboardAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F0F0F0', alignItems: 'center', justifyContent: 'center' },
+  leaderboardAvatarText: { color: palette.ink, fontSize: 12, fontWeight: '800' },
+  leaderboardDetails: { flex: 1, minWidth: 0 },
+  leaderboardName: { color: palette.ink, fontSize: 13, fontWeight: '700' },
+  winnerBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, backgroundColor: '#AAB07A', paddingHorizontal: 6, paddingVertical: 3, marginTop: 5 },
+  badgeIconSlot: { borderWidth: 1, borderColor: '#858B5A', borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.2)' },
+  winnerBadgeText: { color: palette.ink, fontSize: 7, fontWeight: '900', letterSpacing: 0.4 },
+  leaderboardCount: { minWidth: 42, alignItems: 'flex-end' },
+  leaderboardCountValue: { color: palette.ink, fontSize: 20, fontWeight: '800' },
+  leaderboardCountLabel: { color: palette.muted, fontSize: 7, fontWeight: '800', letterSpacing: 0.7, marginTop: 1 },
+  leaderboardEmptyState: { minHeight: 210, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 22 },
+  leaderboardEmptyIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  leaderboardEmptyTitle: { color: palette.ink, fontSize: 15, fontWeight: '700', textAlign: 'center' },
+  leaderboardEmptyCopy: { color: palette.muted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 6 },
+  leaderboardEmptyNote: { color: palette.muted, fontSize: 10, lineHeight: 15, textAlign: 'center', marginTop: 12 },
   profileHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 22 },
   profileTitle: { color: palette.ink, fontSize: 34, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginBottom: 22 },
   profileIdentity: { alignItems: 'center', gap: 12, paddingVertical: 24, borderTopWidth: 1, borderBottomWidth: 1, borderColor: palette.line, marginBottom: 28 },
@@ -1416,6 +1641,7 @@ const styles = StyleSheet.create({
   profileStatValue: { color: palette.ink, fontSize: 14, fontWeight: '700' },
   badgesEyebrow: { marginTop: 28 },
   badgeRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, padding: 13, marginTop: 11, borderWidth: 1, borderColor: palette.line },
+  badgePreviewRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: palette.paper, paddingHorizontal: 11, paddingVertical: 8, marginTop: 8, borderWidth: 1, borderColor: palette.line },
   badgeSeal: { width: 39, height: 39, borderRadius: 20, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center' },
   badgeSealText: { color: palette.red, fontSize: 10, fontWeight: '800' },
   badgeCopy: { flex: 1, paddingHorizontal: 11 },

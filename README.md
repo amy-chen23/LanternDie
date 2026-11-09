@@ -151,8 +151,12 @@ upvote, downvote, or flag another member's report as inaccurate. The first flag
 shows an inaccuracy badge; this is not a verification decision. Votes and flags
 can be removed. Device GPS is not collected, and friends-only sharing is not
 available until friendships exist. The submitted count updates from saved
-reports. Automatic verification, verified counts, points, and leaderboard
-data are not implemented. Native builds now include experimental on-phone
+reports. Automatic verification, true verified counts, points, and streaks
+are not implemented. The temporary weekly and monthly leaderboard counts each
+saved report as one verified kill; community likes, flags, and classifier
+scores are excluded. Preview mode uses separate labeled sample rankings.
+
+Native builds include experimental on-phone
 alive/dead scoring after Roboflow detection, plus a separate community
 verification queue with per-insect labels. All scores remain in shadow mode;
 they do not automatically verify reports or award points. See
@@ -181,6 +185,11 @@ Generated crops, recovery checkpoints, and training artifacts stay in that ignor
 directory. The deployable ONNX bundle is copied into `assets/models/` and included
 in Git. Training alone does not deploy scores or change report acceptance.
 
+The weekly and monthly top-killer, Local Star, Kill Streak, and Best Streak
+badge images are in `assets/`: `weekly-top-killer.png`,
+`monthly-top-killer.png`, `local-star.png`, `kill-streak.png`, and `best-streak.png`.
+Local Star's five-mile radius is a design placeholder until reliable location
+data is supported; the app does not currently request or use device location.
+
 ## Deploying
 - Deployed url: https://lanterndie.vercel.app/
-
