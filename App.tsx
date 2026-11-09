@@ -22,6 +22,7 @@ import type { Session } from '@supabase/supabase-js';
 import { Flag, House, Pencil, Trophy, UserRound, UsersRound } from 'lucide-react-native';
 import { loadReports, loadPublicReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
+import { loadLeaderboard, type LeaderboardEntry, type LeaderboardPeriod } from './lib/leaderboard';
 import { supabase } from './lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -40,9 +41,6 @@ const palette = {
 
 type Screen = 'home' | 'community' | 'leaderboard' | 'profile';
 type AuthMode = 'sign-in' | 'sign-up';
-type LeaderboardPeriod = 'weekly' | 'monthly';
-type LeaderboardEntry = { name: string; initials: string; verifiedKills: number; avatarUrl: string | null };
-
 const previewLeaderboardRankings: Record<LeaderboardPeriod, LeaderboardEntry[]> = {
   weekly: [
     { name: 'Maya Chen', initials: 'MC', verifiedKills: 12, avatarUrl: null },
@@ -1001,7 +999,7 @@ function CommunityScreen({ previewMode, reports, loading, error, busyId, userId,
         </View>
         <View style={styles.leaderboardCopy}>
           <Text style={styles.leaderboardTitle}>Weekly and monthly verified rankings</Text>
-          <Text style={styles.emptyActivityCopy}>Rankings appear once verified reports are available.</Text>
+          <Text style={styles.emptyActivityCopy}>Saved reports currently count toward the temporary rankings.</Text>
         </View>
         <Text style={styles.leaderboardArrow}>›</Text>
       </Pressable>
@@ -1012,8 +1010,34 @@ function CommunityScreen({ previewMode, reports, loading, error, busyId, userId,
 
 function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
   const [period, setPeriod] = useState<LeaderboardPeriod>('weekly');
-  const rankings = previewMode ? previewLeaderboardRankings[period] : [];
+  const [rankings, setRankings] = useState<LeaderboardEntry[]>([]);
+  const [loadingRankings, setLoadingRankings] = useState(!previewMode);
+  const [rankingError, setRankingError] = useState('');
   const winnerTitle = period === 'weekly' ? 'WEEKLY TOP KILLER' : 'MONTHLY TOP KILLER';
+
+  useEffect(() => {
+    if (previewMode) {
+      setRankings(previewLeaderboardRankings[period]);
+      setLoadingRankings(false);
+      setRankingError('');
+      return;
+    }
+
+    let active = true;
+    setLoadingRankings(true);
+    setRankingError('');
+    loadLeaderboard(period)
+      .then(entries => {
+        if (active) setRankings(entries);
+      })
+      .catch(error => {
+        if (active) setRankingError(error instanceof Error ? error.message : 'Could not load leaderboard.');
+      })
+      .finally(() => {
+        if (active) setLoadingRankings(false);
+      });
+    return () => { active = false; };
+  }, [period, previewMode]);
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
@@ -1021,15 +1045,17 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
         <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.pageLogo} />
         <Text style={styles.eyebrow}>LANTERNDIE  /  RANKINGS</Text>
         <Text style={styles.leaderboardPageTitle}>Leaderboard</Text>
-        <Text style={styles.communityDescription}>Recognizing verified field work, one report at a time.</Text>
+        <Text style={styles.communityDescription}>A temporary ranking based on saved report uploads.</Text>
       </View>
 
-      {previewMode ? (
-        <View style={styles.previewBanner}>
-          <Text style={styles.previewBannerText}>PREVIEW SAMPLE</Text>
-          <Text style={styles.previewBannerDetail}>These rankings are sample data, not verified totals.</Text>
-        </View>
-      ) : null}
+      <View style={styles.previewBanner}>
+        <Text style={styles.previewBannerText}>{previewMode ? 'PREVIEW SAMPLE' : 'TEMPORARY RANKING'}</Text>
+        <Text style={styles.previewBannerDetail}>
+          {previewMode
+            ? 'Sample rankings for layout testing; not connected to reports.'
+            : 'Each saved report currently counts as one verified kill. True verification will replace this temporary rule.'}
+        </Text>
+      </View>
 
       <View style={styles.leaderboardPanel}>
         <View style={styles.leaderboardFilters}>
@@ -1070,7 +1096,11 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
           />
         </View>
 
-        {rankings.length ? rankings.map((entry, index) => (
+        {rankingError ? (
+          <Text accessibilityRole="alert" style={styles.formMessage}>{rankingError}</Text>
+        ) : loadingRankings ? (
+          <ActivityIndicator color={palette.ink} />
+        ) : rankings.length ? rankings.map((entry, index) => (
           <View key={`${period}-${entry.name}`} style={styles.leaderboardRow}>
             <Text style={styles.leaderboardRank}>{String(index + 1).padStart(2, '0')}</Text>
             {entry.avatarUrl ? (
@@ -1089,15 +1119,14 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
             </View>
             <View style={styles.leaderboardCount}>
               <Text style={styles.leaderboardCountValue}>{entry.verifiedKills}</Text>
-              <Text style={styles.leaderboardCountLabel}>VERIFIED</Text>
+              <Text style={styles.leaderboardCountLabel}>{previewMode ? 'SAMPLE' : 'UPLOADS'}</Text>
             </View>
           </View>
         )) : (
           <View style={styles.leaderboardEmptyState}>
             <View style={styles.leaderboardEmptyIcon}><Trophy color={palette.red} size={22} strokeWidth={1.8} /></View>
-            <Text style={styles.leaderboardEmptyTitle}>No verified rankings yet</Text>
-            <Text style={styles.leaderboardEmptyCopy}>Rankings will appear once verified reports are available.</Text>
-            <Text style={styles.leaderboardEmptyNote}>Community likes, raw uploads, and experimental classifier scores do not count as verified kills.</Text>
+            <Text style={styles.leaderboardEmptyTitle}>No uploads in this period</Text>
+            <Text style={styles.leaderboardEmptyCopy}>Rankings appear here after reports are saved.</Text>
           </View>
         )}
       </View>
