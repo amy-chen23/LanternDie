@@ -1,11 +1,17 @@
 # LanternDie
 
 LanternDie is an Expo app for submitting spotted lanternfly photo reports.
-Reports are private by default; users can share them with signed-in members.
-Reports and photos sync between the website and Expo Go. Email/password
-sign-in works in Expo Go and on the website. Google sign-in works in a native
-build and on the website. Rankings, verification, points, and streaks are
-still placeholders.
+The human-verified beta uses background lanternfly detection, followed by
+per-insect community or admin decisions. Reports publish to signed-in members
+after every insect has a final decision; each verified dead insect earns one
+kill credit. Weekly/monthly rankings use those credits. Automatic alive/dead
+model approval is disabled. Points, streak rewards, and earned badges remain
+future work.
+
+Email/password sign-in works in Expo Go and on the website. Google sign-in works
+in a native build and on the website. Reports and photos sync through Supabase.
+See [beta release details](docs/HUMAN_VERIFIED_BETA.md) and the
+[adult-only offline model workflow](ml/README.md#adult-only-improvement-workflow).
 
 ## Public repository mirror
 
@@ -43,7 +49,7 @@ of the source `main` history before enabling the mirror.
 	```
 
 4. Install **Expo Go** on your iPhone or Android phone. This project uses Expo
-	SDK 54 to work with the iPhone App Store version. Keep the phone and computer
+	SDK 58 to work with the current iPhone App Store version. Keep the phone and computer
 	connected to the same Wi-Fi network. On a physical iPhone, sign in to Expo
 	Go and Expo CLI with the same free Expo account (`npx expo login`).
 5. Start the app in LAN mode:
@@ -141,6 +147,24 @@ The Google OAuth client redirects to Supabase first; Supabase then redirects
 to `lanterndie://auth/callback`. A hosted app or GitHub deployment is not
 needed for this local test.
 
+## Report overhaul in progress
+
+On `report-overhaul`, uploads are saved as pending and queued for background
+server checks. Exact duplicates are blocked, Roboflow detection creates individual
+insect records, and reports publish only when every insect has a final decision.
+The privacy selector and automatic phone inference have been removed from this
+flow. The feed filters published reports, while Recent activity shows processing
+status. Community voting now uses five-seat reviewer panels and three matching labels
+per insect. Admin role discovery and moderation controls are implemented, including box
+corrections, overrides, rejection/restoration, and audit history. Server alive/dead
+inference remains a subsequent step. This branch's database migrations, functions, and worker schedule are deployed to
+LanternDie. The hosted client still needs deployment. See
+[current rollout status](docs/REPORT_OVERHAUL_ROLLOUT.md).
+See [background pipeline rollout](docs/REPORT_PROCESSING_PIPELINE.md) and
+[community review](docs/COMMUNITY_REVIEW.md), and [admin roles](docs/ADMIN_ROLE.md), and [moderation](docs/ADMIN_MODERATION.md).
+
+The sections below describe the earlier model integration baseline.
+
 ## Current scope
 
 Selecting a photo previews it locally. Before submitting, users choose an
@@ -151,10 +175,39 @@ upvote, downvote, or flag another member's report as inaccurate. The first flag
 shows an inaccuracy badge; this is not a verification decision. Votes and flags
 can be removed. Device GPS is not collected, and friends-only sharing is not
 available until friendships exist. The submitted count updates from saved
-reports. Lanternfly classification, true verified counts, points, and streaks
+reports. Automatic verification, true verified counts, points, and streaks
 are not implemented. The temporary weekly and monthly leaderboard counts each
 saved report as one verified kill; community likes, flags, and classifier
 scores are excluded. Preview mode uses separate labeled sample rankings.
+
+Native builds include experimental on-phone
+alive/dead scoring after Roboflow detection, plus a separate community
+verification queue with per-insect labels. All scores remain in shadow mode;
+they do not automatically verify reports or award points. See
+[integration and rollout instructions](ml/INTEGRATION.md) for the required
+database migration and native build setup.
+
+### Lanternfly identification
+
+This branch adds server-side lanternfly identification after report uploads,
+saved detection confidence and bounding boxes, an automatic results pop-up,
+and retries for failed checks. It requires the new identification migration and
+an `identify-report` Supabase Edge Function configured with the Universe general
+segmentation workflow or a deployed Roboflow detector. See [setup and validation](supabase/README.md#lanternfly-identification).
+Experimental native alive/dead scoring and community labels are implemented on
+this branch. Automatic verification and points remain disabled. See the
+[branch checkpoint](docs/MODEL_IMPLEMENTATION_CHECKPOINT.md) for tested behavior,
+model limitations, deployment status, and remaining work.
+
+## Alive/dead training experiment
+
+The local `confidence-training/alive/` and `confidence-training/dead/` folders
+contain the private training images and are ignored by Git. See
+[local training instructions](ml/README.md) for auditing photos, preparing
+Roboflow crops, reviewing them, and fitting a frozen MobileNetV3-Small baseline.
+Generated crops, recovery checkpoints, and training artifacts stay in that ignored
+directory. The deployable ONNX bundle is copied into `assets/models/` and included
+in Git. Training alone does not deploy scores or change report acceptance.
 
 The weekly and monthly top-killer, Local Star, Kill Streak, and Best Streak
 badge images are in `assets/`: `weekly-top-killer.png`,

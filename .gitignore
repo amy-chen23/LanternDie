@@ -7,3 +7,9 @@ web-build/
 .env.*
 !.env.example
 .agents
+supabase/.temp/
+confidence-training/
+__pycache__/
+*.pyc
+ios/
+android/

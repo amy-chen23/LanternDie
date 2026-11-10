@@ -18,4 +18,50 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm test
       - run: npm run build:web
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check supabase/functions/identify-report/index.ts supabase/functions/process-report-jobs/index.ts
+
+  identification-access:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/identification-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/death-assessment-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/report-overhaul-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/report-processing-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/community-review-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/admin-role-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/admin-moderation-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/admin-attention-access.sql
+        env:
+          PGPASSWORD: postgres

@@ -1,0 +1,52 @@
+{
+  "model": "lanternfly-dead.onnx",
+  "sha256": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d",
+  "source_checkpoint_sha256": "99c557bad5862504641bd09284ef1ec3b50fb885ca1b5f40ea13a2cc0994bd85",
+  "input": {
+    "name": "rgb",
+    "dtype": "float32",
+    "shape": [
+      1,
+      224,
+      224,
+      3
+    ],
+    "layout": "NHWC",
+    "channels": "RGB, no alpha",
+    "range": [
+      0,
+      255
+    ]
+  },
+  "preprocessing": {
+    "orientation": "Apply EXIF orientation before detecting/cropping",
+    "detector_input": "Same as training: longest edge <=1600; JPEG quality 75",
+    "crop": "One lanternfly bounding box; pad each side by 15% of box dimensions; clamp to image",
+    "resize": "Preserve aspect ratio; bilinear resize to fit 224x224; centered padding RGB (124,116,104), as PIL.ImageOps.pad",
+    "normalization": "Embedded in model; do not normalize input yourself"
+  },
+  "output": {
+    "name": "dead_score",
+    "shape": [
+      1,
+      1
+    ],
+    "sigmoid": "Embedded",
+    "meaning": "Uncalibrated dead score, not a validated probability"
+  },
+  "calibrated": false,
+  "self_test": {
+    "input": "all-zero float32 RGB [1,224,224,3]",
+    "dead_score": 0.006281763315200806,
+    "absolute_tolerance": 0.0001
+  },
+  "experimental_dead_threshold": 0.7,
+  "below_threshold": "uncertain; not established alive",
+  "validation": {
+    "inputs_checked": 85,
+    "max_absolute_error": 2.205371856689453e-06,
+    "runtime": "1.31.1",
+    "provider": "CPUExecutionProvider"
+  },
+  "scope": "Insect crop classifier only. Does not locate or identify lanternflies. Phone performance not tested."
+}
