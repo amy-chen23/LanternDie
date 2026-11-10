@@ -2,10 +2,13 @@ import { useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { identifyReport } from '../lib/identification';
 import type { Report } from '../lib/reports';
-import { DeathAssessmentStatus } from './DeathAssessment';
+import { reportProcessingMessage } from '../lib/report-processing';
 
 function identificationTitle(report: Report) {
   const result = report.identification;
+  if (report.processing && ['queued', 'running', 'retry'].includes(report.processing.status)) return 'Photo checks pending';
+  if (report.insects_ready || report.insects.length) return report.insects.length
+    ? `${report.insects.length} lanternfl${report.insects.length === 1 ? 'y' : 'ies'} detected` : 'No active insect boxes';
   return !result ? 'Lanternfly identification not run'
     : result.status === 'processing' ? 'Identification in progress'
     : result.status === 'failed' ? 'Identification unavailable'
@@ -20,6 +23,8 @@ export function IdentificationResultsModal({ report, onClose, error }: {
 }) {
   if (!report) return null;
   const result = report.identification;
+  const authoritative = report.insects_ready || report.insects.length > 0;
+  const boxes = authoritative ? report.insects.map(insect => insect.box) : result?.detections ?? [];
   const hasBoxes = result && result.image_width && result.image_height;
   return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
     <View style={styles.backdrop}>
@@ -37,12 +42,14 @@ export function IdentificationResultsModal({ report, onClose, error }: {
           <Text style={styles.note}>Your report is saved. Lanternfly detection and community verification are separate checks.</Text>
           {report.photo_url ? <View style={{ width: '100%', aspectRatio: hasBoxes ? result.image_width! / result.image_height! : 4 / 3 }}>
             <Image source={{ uri: report.photo_url }} resizeMode={hasBoxes ? 'stretch' : 'contain'} style={StyleSheet.absoluteFill} accessibilityLabel="Submitted photo with numbered lanternfly detection boxes" />
-            {hasBoxes ? result.detections.map((box, index) => <View key={index} pointerEvents="none" style={[styles.box, {
+            {hasBoxes ? boxes.map((box, index) => <View key={index} pointerEvents="none" style={[styles.box, {
               left: `${box.x / result.image_width! * 100}%`, top: `${box.y / result.image_height! * 100}%`,
               width: `${box.width / result.image_width! * 100}%`, height: `${box.height / result.image_height! * 100}%`,
             }]}><Text style={styles.boxNumber}>{index + 1}</Text></View>) : null}
           </View> : null}
-          {result?.detections.map((box, index) => <Text key={index} style={styles.note}>
+          {authoritative ? report.insects.map((insect, index) => <Text key={insect.id} style={styles.note}>
+            {index + 1}. {insect.label === 'pending' ? 'Awaiting alive/dead review' : insect.label === 'dead' ? 'Verified dead' : 'Verified alive'}
+          </Text>) : result?.detections.map((box, index) => <Text key={index} style={styles.note}>
             {index + 1}. {box.label} · {Math.round(box.confidence * 100)}% detection confidence
           </Text>)}
           {result?.status === 'detected' || result?.status === 'not_detected' ? <Text style={styles.note}>
@@ -50,7 +57,7 @@ export function IdentificationResultsModal({ report, onClose, error }: {
           </Text> : null}
           {result?.status === 'processing' ? <Text style={styles.note}>The check is still running. Refresh Recent activity to see the result.</Text> : null}
           {error || result?.error_message ? <Text accessibilityRole="alert" style={styles.error}>{error || result?.error_message}</Text> : null}
-          {!result || result.status === 'failed' ? <Text style={styles.note}>Use Identify or Retry identification in Recent activity to check this saved photo.</Text> : null}
+          {!result || result.status === 'failed' ? <Text style={styles.note}>Processing status is shown in Recent activity. Technical failures can be retried after 15 minutes.</Text> : null}
         </ScrollView>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.doneButton}><Text style={styles.doneText}>Done</Text></Pressable>
       </View>
@@ -66,7 +73,8 @@ export function ReportIdentification({ report, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const result = report.identification;
-  const complete = result?.status === 'detected' || result?.status === 'not_detected';
+  const complete = report.processing?.status !== 'duplicate' && report.workflow_status !== 'pending_detection'
+    && (result?.status === 'detected' || result?.status === 'not_detected');
   const processing = result?.status === 'processing';
   const title = identificationTitle(report);
 
@@ -88,13 +96,13 @@ export function ReportIdentification({ report, onChanged }: {
   }
 
   return <View style={styles.section}>
-    <Text accessibilityLiveRegion="polite" style={styles.title}>{busy ? 'Checking for lanternflies…' : title}</Text>
-    <DeathAssessmentStatus report={report} onChanged={onChanged} />
+    <Text accessibilityLiveRegion="polite" style={styles.title}>{busy ? 'Requesting retry…' : title}</Text>
+    {onChanged ? <Text style={styles.note}>{reportProcessingMessage(report.workflow_status, report.processing)}</Text> : null}
     {result?.status === 'failed' && result.error_message ? <Text style={styles.note}>{result.error_message}</Text> : null}
-    {processing ? <Text style={styles.note}>Refresh to see the result. If interrupted, retry after two minutes.</Text> : null}
+    {processing ? <Text style={styles.note}>Background processing continues after you leave this screen.</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {!complete && onChanged ? <Pressable accessibilityRole="button" disabled={busy} onPress={() => void retry()} style={styles.action}>
-      {busy ? <ActivityIndicator color="#F72D33" /> : <Text style={styles.link}>{!result ? 'Identify lanternfly' : 'Retry identification'}</Text>}
+    {report.processing?.status === 'failed' && onChanged ? <Pressable accessibilityRole="button" disabled={busy} onPress={() => void retry()} style={styles.action}>
+      {busy ? <ActivityIndicator color="#F72D33" /> : <Text style={styles.link}>{'Retry background checks'}</Text>}
     </Pressable> : null}
     {complete ? <>
       <Pressable accessibilityRole="button" onPress={() => setExpanded(true)} style={styles.action}>

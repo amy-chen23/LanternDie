@@ -141,6 +141,22 @@ The Google OAuth client redirects to Supabase first; Supabase then redirects
 to `lanterndie://auth/callback`. A hosted app or GitHub deployment is not
 needed for this local test.
 
+## Report overhaul in progress
+
+On `report-overhaul`, uploads are saved as pending and queued for background
+server checks. Exact duplicates are blocked, Roboflow detection creates individual
+insect records, and reports publish only when every insect has a final decision.
+The privacy selector and automatic phone inference have been removed from this
+flow. The feed filters published reports, while Recent activity shows processing
+status. Community voting now uses five-seat reviewer panels and three matching labels
+per insect. Admin role discovery and moderation controls are implemented, including box
+corrections, overrides, rejection/restoration, and audit history. Server alive/dead
+inference remains a subsequent step. This branch's migrations, functions, and worker schedule are not deployed.
+See [background pipeline rollout](docs/REPORT_PROCESSING_PIPELINE.md) and
+[community review](docs/COMMUNITY_REVIEW.md), and [admin roles](docs/ADMIN_ROLE.md), and [moderation](docs/ADMIN_MODERATION.md).
+
+The sections below describe the earlier model integration baseline.
+
 ## Current scope
 
 Selecting a photo previews it locally. Before submitting, users choose an

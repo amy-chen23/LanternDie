@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Alert,
   Image,
   type ImageSourcePropType,
@@ -19,14 +20,16 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
-import { Flag, House, Pencil, Trophy, UserRound, UsersRound } from 'lucide-react-native';
+import { Flag, House, Pencil, Shield, Trophy, UserRound, UsersRound } from 'lucide-react-native';
 import { loadReports, loadPublicReports, loadVerificationReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { loadLeaderboard, type LeaderboardEntry, type LeaderboardPeriod } from './lib/leaderboard';
 import { supabase } from './lib/supabase';
-import { identifyReport } from './lib/identification';
-import { IdentificationResultsModal, ReportIdentification } from './components/ReportIdentification';
-import { VerificationVoting } from './components/DeathAssessment';
+import { reportProcessingMessage, hasPendingProcessing } from './lib/report-processing';
+import { ReportIdentification } from './components/ReportIdentification';
+import { CommunityReview } from './components/CommunityReview';
+import { AdminAccess } from './components/AdminAccess';
+import { useAdminRole } from './hooks/useAdminRole';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -42,7 +45,7 @@ const palette = {
   white: '#FFFFFF',
 };
 
-type Screen = 'home' | 'community' | 'leaderboard' | 'profile';
+type Screen = 'home' | 'community' | 'leaderboard' | 'profile' | 'admin';
 type AuthMode = 'sign-in' | 'sign-up';
 const previewLeaderboardRankings: Record<LeaderboardPeriod, LeaderboardEntry[]> = {
   weekly: [
@@ -71,7 +74,7 @@ function todayDate(): string {
 }
 
 function newReportDetails(): ReportDetails {
-  return { observed_on: todayDate(), place_name: '', caption: '', visibility: 'private' };
+  return { observed_on: todayDate(), place_name: '', caption: '' };
 }
 
 function reportScore(report: Report): number {
@@ -93,6 +96,7 @@ function displayNameError(value: string): string | null {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
+  const adminRole = useAdminRole(session?.user.id);
   const [previewMode, setPreviewMode] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [screen, setScreen] = useState<Screen>('home');
@@ -111,8 +115,6 @@ export default function App() {
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportError, setReportError] = useState('');
   const [savingReport, setSavingReport] = useState(false);
-  const [uploadResultReportId, setUploadResultReportId] = useState<string | null>(null);
-  const [uploadResultError, setUploadResultError] = useState('');
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [profilePhotoOwnerId, setProfilePhotoOwnerId] = useState<string | null>(null);
   const [profilePhotoError, setProfilePhotoError] = useState('');
@@ -120,16 +122,13 @@ export default function App() {
   const activeUserId = useRef<string | null>(null);
   activeUserId.current = session?.user.id ?? null;
   const visibleReports = reportsOwnerId === session?.user.id ? reports : [];
+  const latestVisibleReports = useRef<Report[]>([]);
+  latestVisibleReports.current = visibleReports;
   const visiblePublicReports = publicReportsViewerId === session?.user.id ? publicReports : [];
   const visibleProfilePhoto = profilePhotoOwnerId === session?.user.id ? profilePhotoUrl : null;
   const displayName = getDisplayName(session?.user.user_metadata?.display_name);
   const savedDisplayName = typeof session?.user.user_metadata?.display_name === 'string'
     ? session.user.user_metadata.display_name.trim() : '';
-
-  useEffect(() => {
-    setUploadResultReportId(null);
-    setUploadResultError('');
-  }, [session?.user.id]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -148,12 +147,7 @@ export default function App() {
   useEffect(() => {
     setReports([]);
     setReportsOwnerId(null);
-    if (session?.user.id) {
-      void refreshReports(session.user.id);
-    } else {
-      setReports([]);
-      setReportError('');
-    }
+    setReportError('');
   }, [session?.user.id]);
 
   useEffect(() => {
@@ -161,7 +155,6 @@ export default function App() {
     setVerificationReports([]);
     setPublicReportsViewerId(null);
     setCommunityError('');
-    if (session?.user.id) void refreshCommunity(session.user.id);
   }, [session?.user.id]);
 
   useEffect(() => {
@@ -185,12 +178,52 @@ export default function App() {
       });
   }, [session?.user.id]);
 
-  async function refreshReports(userId = session?.user.id) {
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId || !supabase) return;
+    let alive = true;
+    const resume = async () => {
+      const { error } = await supabase!.rpc('touch_member_activity');
+      if (alive && activeUserId.current === userId) {
+        if (error) setReportError('Could not update activity. Refresh to retry.');
+        await Promise.all([refreshReports(userId), refreshCommunity(userId)]);
+      }
+    };
+    void resume();
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') void resume();
+    });
+    const heartbeat = setInterval(async () => {
+      if (AppState.currentState === 'active') await supabase!.rpc('touch_member_activity');
+    }, 5 * 60_000);
+    return () => { alive = false; subscription.remove(); clearInterval(heartbeat); };
+  }, [session?.user.id]);
+
+  useEffect(() => {
+    if (!adminRole.isAdmin) setScreen(current => current === 'admin' ? 'profile' : current);
+  }, [adminRole.isAdmin]);
+
+  const processingPending = hasPendingProcessing(visibleReports.map(report => report.processing));
+  const reviewsPending = visibleReports.some(report => report.workflow_status === 'pending_review'
+    || report.workflow_status === 'admin_review' || report.insects.some(insect => insect.label === 'pending'));
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId || (!processingPending && !reviewsPending)) return;
+    let refreshing = false;
+    const timer = setInterval(async () => {
+      if (refreshing || AppState.currentState !== 'active') return;
+      refreshing = true;
+      try { await refreshReports(userId, true); } finally { refreshing = false; }
+    }, processingPending ? 10_000 : 30_000);
+    return () => clearInterval(timer);
+  }, [session?.user.id, processingPending, reviewsPending]);
+
+  async function refreshReports(userId = session?.user.id, quiet = false) {
     if (!userId) return;
-    setReportsLoading(true);
+    if (!quiet) setReportsLoading(true);
     setReportError('');
     try {
-      const nextReports = await loadReports(userId);
+      const nextReports = await loadReports(userId, quiet ? latestVisibleReports.current : []);
       if (activeUserId.current === userId) {
         setReports(nextReports);
         setReportsOwnerId(userId);
@@ -200,7 +233,7 @@ export default function App() {
         setReportError(error instanceof Error ? error.message : 'Could not load your reports.');
       }
     } finally {
-      if (activeUserId.current === userId) setReportsLoading(false);
+      if (!quiet && activeUserId.current === userId) setReportsLoading(false);
     }
   }
 
@@ -245,25 +278,15 @@ export default function App() {
     if (!session || !photoAsset || savingReport) return;
     setSavingReport(true);
     setReportError('');
-    setUploadResultError('');
     try {
-      const reportId = await submitReport(session.user.id, photoAsset, reportDetails);
-      setPhotoAsset(null);
-      setReportDetails(newReportDetails());
-      await refreshReports(session.user.id);
-      let identificationError = '';
-      try {
-        await identifyReport(reportId);
-      } catch (error) {
-        identificationError = error instanceof Error ? error.message : 'Report saved. Identification could not finish.';
+      const userId = session.user.id;
+      await submitReport(userId, photoAsset, reportDetails);
+      if (activeUserId.current === userId) {
+        setPhotoAsset(null);
+        setReportDetails(newReportDetails());
+        // The database already enqueued detection. No inference runs on this device.
+        void refreshReports(userId);
       }
-      await refreshReports(session.user.id);
-      if (activeUserId.current === session.user.id) {
-        setUploadResultError(identificationError);
-        setUploadResultReportId(reportId);
-      }
-      await refreshCommunity(session.user.id);
-      if (identificationError && activeUserId.current === session.user.id) setReportError(identificationError);
     } catch (error) {
       setReportError(error instanceof Error ? error.message : 'Could not save your report.');
     } finally {
@@ -284,7 +307,6 @@ export default function App() {
     setReportError('');
     try {
       await updateReportDetails(editingReportId, reportDetails);
-      if (reportDetails.visibility === 'private') setPublicReports(current => current.filter(report => report.id !== editingReportId));
       setEditingReportId(null);
       setReportDetails(newReportDetails());
       await Promise.all([refreshReports(session.user.id), refreshCommunity(session.user.id)]);
@@ -465,7 +487,7 @@ export default function App() {
               onEditReport={(report) => {
                 setPhotoAsset(null);
                 setEditingReportId(report.id);
-                setReportDetails({ observed_on: report.observed_on, place_name: report.place_name ?? '', caption: report.caption ?? '', visibility: report.visibility });
+                setReportDetails({ observed_on: report.observed_on, place_name: report.place_name ?? '', caption: report.caption ?? '' });
               }}
               onCancelEdit={() => { setEditingReportId(null); setReportDetails(newReportDetails()); }}
               onRefreshReports={() => void refreshReports()}
@@ -476,13 +498,16 @@ export default function App() {
               onOpenProfile={() => setScreen('profile')}
             />
           ) : screen === 'community' ? (
-            <CommunityScreen previewMode={previewMode} reports={visiblePublicReports}
+            <CommunityScreen key={session?.user.id ?? 'preview'} previewMode={previewMode} reports={visiblePublicReports}
               verificationReports={publicReportsViewerId === session?.user.id ? verificationReports : []} loading={communityLoading}
               error={communityError} busyId={communityBusyId} userId={session?.user.id ?? null}
               onRefresh={() => refreshCommunity()} onVote={(report, value) => void changeVote(report, value)}
               onFlag={(report) => void changeFlag(report)} onOpenLeaderboard={() => setScreen('leaderboard')} />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen previewMode={previewMode} />
+          ) : screen === 'admin' && adminRole.isAdmin && session ? (
+            <AdminAccess key={session.user.id} userId={session.user.id} checkAccess={adminRole.refresh}
+              onModerated={async () => { await Promise.all([refreshReports(), refreshCommunity()]); }} />
           ) : (
             <ProfileScreen
               email={session?.user.email ?? 'Preview account'}
@@ -494,21 +519,27 @@ export default function App() {
               savedDisplayName={savedDisplayName}
               previewMode={previewMode}
               submittedCount={visibleReports.length}
+              verifiedKills={visibleReports.reduce((sum, report) => sum + report.verified_kills, 0)}
               onSaveDisplayName={saveDisplayName}
+              isAdmin={adminRole.isAdmin}
+              accessError={adminRole.error}
+              onRefreshAccess={() => { void adminRole.refresh(); }}
               onSignOut={signOut}
             />
           )}
         </View>
-        <BottomNavigation activeScreen={screen} onSelect={(next) => {
+        <BottomNavigation activeScreen={screen === 'admin' && !adminRole.isAdmin ? 'profile' : screen} isAdmin={adminRole.isAdmin} onSelect={(next) => {
+          if (next === 'admin') {
+            const userId = session?.user.id;
+            void adminRole.refresh().then(allowed => {
+              if (allowed && userId && activeUserId.current === userId) setScreen('admin');
+            });
+            return;
+          }
           setScreen(next);
           if (next === 'community' && session?.user.id) void refreshCommunity(session.user.id);
         }} />
       </View>
-      <IdentificationResultsModal
-        report={visibleReports.find(report => report.id === uploadResultReportId) ?? null}
-        error={uploadResultError}
-        onClose={() => setUploadResultReportId(null)}
-      />
     </SafeAreaView>
   );
 }
@@ -817,12 +848,12 @@ function HomeScreen({
         <View style={styles.statBlock}>
           <Text style={styles.statLabel}>SUBMITTED REPORTS</Text>
           <Text style={styles.statValue}>{reports.length}</Text>
-          <Text style={styles.statFoot}>private field log</Text>
+          <Text style={styles.statFoot}>your field log</Text>
         </View>
         <View style={styles.statSeparator} />
         <View style={styles.statBlock}>
-          <Text style={styles.statLabel}>FIELD POINTS</Text>
-          <Text style={styles.statValue}>0</Text>
+          <Text style={styles.statLabel}>VERIFIED KILLS</Text>
+          <Text style={styles.statValue}>{reports.reduce((sum, report) => sum + report.verified_kills, 0)}</Text>
           <Text style={styles.statFoot}>earned together</Text>
         </View>
       </View>
@@ -855,7 +886,7 @@ function HomeScreen({
         <View style={styles.selectedPhotoNotice}>
           <Text style={styles.selectedPhotoTitle}>PHOTO SELECTED</Text>
           <Text style={styles.selectedPhotoCopy}>
-            {previewMode ? 'This preview stays on your device.' : 'Review the details and audience before submitting. Photos are sent to Roboflow to find lanternflies, then detected insects are assessed on your phone.'}
+            {previewMode ? 'This preview stays on your device.' : 'Review the details before submitting. Photos are sent to Roboflow for detection. Background checks continue after you leave; reports publish after every insect is reviewed.'}
           </Text>
         </View>
       ) : null}
@@ -869,7 +900,7 @@ function HomeScreen({
               onPress={onSubmitReport}
               style={[styles.primaryButton, styles.reportSubmitButton, savingReport && styles.disabled]}
             >
-              {savingReport ? <><ActivityIndicator color={palette.white} /><Text style={styles.primaryButtonText}>Saving and checking…</Text></> : <Text style={styles.primaryButtonText}>Submit report</Text>}
+              {savingReport ? <><ActivityIndicator color={palette.white} /><Text style={styles.primaryButtonText}>Uploading…</Text></> : <Text style={styles.primaryButtonText}>Submit report</Text>}
             </Pressable> : null}
             <Pressable accessibilityRole="button" accessibilityLabel="Cancel report upload" disabled={savingReport}
               onPress={onCancelReportUpload} style={[styles.cancelUploadButton, previewMode && styles.cancelUploadButtonFull, savingReport && styles.disabled]}>
@@ -879,7 +910,7 @@ function HomeScreen({
         </>
       ) : null}
       {reportError ? <Text accessibilityRole="alert" style={styles.formMessage}>{reportError}</Text> : null}
-      {savingReport && !photoUri ? <Text accessibilityLiveRegion="polite" style={styles.formMessage}>Report saved. Checking for lanternflies…</Text> : null}
+      {savingReport && !photoUri ? <Text accessibilityLiveRegion="polite" style={styles.formMessage}>Report saved. Background checks will continue automatically.</Text> : null}
 
       <View style={styles.privacyNote}>
         <Text style={styles.privacyGlyph}>i</Text>
@@ -904,7 +935,8 @@ function HomeScreen({
             <View style={styles.reportRow}>
               {report.photo_url ? <Image source={{ uri: report.photo_url }} style={styles.reportPhoto} /> : <View style={styles.reportPhoto} />}
               <View style={styles.reportCopy}>
-                <Text style={styles.emptyActivityTitle}>{report.visibility === 'public' ? 'Public report' : 'Private report'}</Text>
+                <Text style={styles.emptyActivityTitle}>{report.workflow_status === 'published' ? 'Published report' : 'Your submission'}</Text>
+                <Text accessibilityLiveRegion="polite" style={styles.emptyActivityCopy}>{reportProcessingMessage(report.workflow_status, report.processing)}</Text>
                 <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
                 {report.caption ? <Text style={styles.emptyActivityCopy}>{report.caption}</Text> : null}
                 {report.flagged_inaccurate ? <Text style={styles.emptyActivityCopy}>Flagged for inaccuracy</Text> : null}
@@ -947,14 +979,7 @@ function ReportFields({ details, onChange }: { details: ReportDetails; onChange:
     <Text style={styles.reportInputLabel}>CAPTION · OPTIONAL</Text>
     <TextInput accessibilityLabel="Report caption" value={details.caption} onChangeText={caption => onChange({ ...details, caption })}
       placeholder="Add context about the sighting" placeholderTextColor="#9AA098" maxLength={280} multiline style={[styles.reportInput, styles.captionInput]} />
-    <Text style={styles.reportInputLabel}>WHO CAN SEE THIS REPORT?</Text>
-    <View style={styles.visibilityRow}>
-      {(['private', 'public'] as const).map(value => <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: details.visibility === value }}
-        onPress={() => onChange({ ...details, visibility: value })} style={[styles.visibilityOption, details.visibility === value && styles.visibilitySelected]}>
-        <Text style={details.visibility === value ? styles.visibilitySelectedText : styles.refreshText}>{value === 'private' ? 'Private' : 'Public'}</Text>
-      </Pressable>)}
-    </View>
-    <Text style={styles.privacyText}>Public reports are visible to signed-in members. Friends only is coming later.</Text>
+    <Text style={styles.privacyText}>Approved reports are public to signed-in members. Pending submissions are available to reviewers and admins.</Text>
   </View>;
 }
 
@@ -968,9 +993,10 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
   onOpenLeaderboard: () => void;
 }) {
   const [verificationOnly, setVerificationOnly] = useState(false);
+  const [reviewReport, setReviewReport] = useState<Report | null>(null);
   const reviewReports = verificationReports;
   const displayed = verificationOnly ? reviewReports : reports;
-  return (
+  return (<>
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
       <View style={styles.communityHeader}>
         <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.pageLogo} />
@@ -1001,14 +1027,17 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
       </View>
       {error ? <Text accessibilityRole="alert" style={styles.formMessage}>{error}</Text> : null}
       {loading ? <ActivityIndicator color={palette.red} /> : displayed.map(report => <View key={report.id} style={styles.communityCard}>
-        <CommunityPhoto uri={report.photo_url} />
+        {verificationOnly ? <Pressable accessibilityRole="button" accessibilityLabel={`Open report by ${report.author_name} for review`}
+          onPress={() => setReviewReport(report)}>
+          <CommunityPhoto uri={report.photo_url} />
+          <Text style={styles.refreshText}>Open report</Text>
+        </Pressable> : <CommunityPhoto uri={report.photo_url} />}
         <ReportIdentification report={report} />
-        <VerificationVoting report={report} userId={userId} onChanged={onRefresh} />
         <Text style={styles.emptyActivityTitle}>{report.author_name}</Text>
         <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
         {report.caption ? <Text style={styles.communityCaption}>{report.caption}</Text> : null}
         {report.flagged_inaccurate ? <Text style={styles.flagBadge}>Flagged for inaccuracy</Text> : null}
-        <View style={styles.actionRow}>
+        {report.workflow_status === 'published' ? <View style={styles.actionRow}>
           {report.user_id !== userId ? (
             <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
               disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
@@ -1022,8 +1051,8 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
               <Text style={report.my_vote === -1 ? styles.voteArrowSelected : styles.voteArrow}>↓</Text>
             </Pressable>
           ) : null}
-        </View>
-        {report.user_id !== userId ? <Pressable accessibilityRole="button" accessibilityLabel={report.my_flag ? 'Remove inaccuracy flag' : 'Flag as inaccurate'}
+        </View> : null}
+        {report.workflow_status === 'published' && report.user_id !== userId ? <Pressable accessibilityRole="button" accessibilityLabel={report.my_flag ? 'Remove inaccuracy flag' : 'Flag as inaccurate'}
           disabled={Boolean(busyId)} onPress={() => onFlag(report)} style={styles.flagAction}>
           <Flag color={palette.red} size={14} strokeWidth={2} />
           <Text style={report.my_flag ? styles.actionSelected : styles.refreshText}>{report.my_flag ? 'Unflag inaccuracy' : 'Flag inaccuracy'}</Text>
@@ -1048,13 +1077,15 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
         </View>
         <View style={styles.leaderboardCopy}>
           <Text style={styles.leaderboardTitle}>Weekly and monthly verified rankings</Text>
-          <Text style={styles.emptyActivityCopy}>Saved reports currently count toward the temporary rankings.</Text>
+          <Text style={styles.emptyActivityCopy}>Verified dead insects on published reports count toward rankings.</Text>
         </View>
         <Text style={styles.leaderboardArrow}>›</Text>
       </Pressable>
       <Text style={styles.homeFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
     </ScrollView>
-  );
+    {reviewReport ? <CommunityReview key={reviewReport.id} report={reviewReport}
+      onClose={() => { setReviewReport(null); void onRefresh(); }} onChanged={onRefresh} /> : null}
+  </>);
 }
 
 function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
@@ -1094,7 +1125,7 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
         <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.pageLogo} />
         <Text style={styles.eyebrow}>LANTERNDIE  /  RANKINGS</Text>
         <Text style={styles.leaderboardPageTitle}>Leaderboard</Text>
-        <Text style={styles.communityDescription}>A temporary ranking based on saved report uploads.</Text>
+        <Text style={styles.communityDescription}>Rankings based on verified dead insects in published reports.</Text>
       </View>
 
       <View style={styles.previewBanner}>
@@ -1102,7 +1133,7 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
         <Text style={styles.previewBannerDetail}>
           {previewMode
             ? 'Sample rankings for layout testing; not connected to reports.'
-            : 'Each saved report currently counts as one verified kill. True verification will replace this temporary rule.'}
+            : 'Each verified dead insect earns one kill credit. Alive sightings earn zero.'}
         </Text>
       </View>
 
@@ -1174,8 +1205,8 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
         )) : (
           <View style={styles.leaderboardEmptyState}>
             <View style={styles.leaderboardEmptyIcon}><Trophy color={palette.red} size={22} strokeWidth={1.8} /></View>
-            <Text style={styles.leaderboardEmptyTitle}>No uploads in this period</Text>
-            <Text style={styles.leaderboardEmptyCopy}>Rankings appear here after reports are saved.</Text>
+            <Text style={styles.leaderboardEmptyTitle}>No verified kills in this period</Text>
+            <Text style={styles.leaderboardEmptyCopy}>Rankings appear after dead insects are verified and their reports publish.</Text>
           </View>
         )}
       </View>
@@ -1217,9 +1248,11 @@ function BadgePreviewRow({ title, description, status = 'SOON' }: { title: strin
 
 function BottomNavigation({
   activeScreen,
+  isAdmin,
   onSelect,
 }: {
   activeScreen: Screen;
+  isAdmin: boolean;
   onSelect: (screen: Screen) => void;
 }) {
   const tabs = [
@@ -1227,6 +1260,7 @@ function BottomNavigation({
     { screen: 'community' as const, label: 'Community', Icon: UsersRound },
     { screen: 'leaderboard' as const, label: 'Leaderboard', Icon: Trophy },
     { screen: 'profile' as const, label: 'My Profile', Icon: UserRound },
+    ...(isAdmin ? [{ screen: 'admin' as const, label: 'Admin', Icon: Shield }] : []),
   ];
 
   return (
@@ -1261,6 +1295,10 @@ function ProfileScreen({
   savedDisplayName,
   previewMode,
   submittedCount,
+  verifiedKills,
+  isAdmin,
+  accessError,
+  onRefreshAccess,
   onSaveDisplayName,
   onSignOut,
 }: {
@@ -1273,6 +1311,10 @@ function ProfileScreen({
   savedDisplayName: string;
   previewMode: boolean;
   submittedCount: number;
+  verifiedKills: number;
+  isAdmin: boolean;
+  accessError: string;
+  onRefreshAccess: () => void;
   onSaveDisplayName: (name: string) => Promise<void>;
   onSignOut: () => void;
 }) {
@@ -1406,7 +1448,7 @@ function ProfileScreen({
       <View style={styles.profileStats}>
         <ProfileStat label="SUBMITTED REPORTS" value={String(submittedCount)} />
         <ProfileStat label="STREAK" value="0 days" />
-        <ProfileStat label="VERIFIED KILLS" value="0" />
+        <ProfileStat label="VERIFIED KILLS" value={String(verifiedKills)} />
         <ProfileStat label="FIELD POINTS" value="0" />
       </View>
 
@@ -1420,6 +1462,11 @@ function ProfileScreen({
 
       <View style={styles.accountNote}>
         <Text style={styles.accountNoteTitle}>ACCOUNT & PRIVACY</Text>
+        {isAdmin ? <Text style={styles.accountNoteText}>Administrator access</Text> : null}
+        {accessError ? <Text accessibilityRole="alert" style={styles.formMessage}>{accessError}</Text> : null}
+        {!previewMode ? <Pressable accessibilityRole="button" onPress={onRefreshAccess} style={styles.refreshButton}>
+          <Text style={styles.refreshText}>Refresh account access</Text>
+        </Pressable> : null}
         <Text style={styles.accountNoteText}>Sign-in email: {email}. Your email stays private. Public reports show your display name and any place you choose to add.</Text>
       </View>
       <Pressable onPress={onSignOut} style={styles.signOutButton}>
@@ -1554,10 +1601,6 @@ const styles = StyleSheet.create({
   reportInputLabel: { color: palette.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.7, marginTop: 10, marginBottom: 6 },
   reportInput: { borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, color: palette.ink, paddingHorizontal: 10, minHeight: 42, fontSize: 14 },
   captionInput: { minHeight: 72, paddingTop: 10, textAlignVertical: 'top' },
-  visibilityRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  visibilityOption: { flex: 1, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: palette.red },
-  visibilitySelected: { backgroundColor: palette.red },
-  visibilitySelectedText: { color: palette.white, fontSize: 11, fontWeight: '800' },
   homeFooter: { color: '#93988F', fontSize: 8, fontWeight: '700', letterSpacing: 1.1, textAlign: 'center', marginTop: 25 },
   communityHeader: { paddingTop: 8, paddingBottom: 27 },
   communityTitle: { color: palette.ink, fontSize: 32, lineHeight: 38, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 13 },

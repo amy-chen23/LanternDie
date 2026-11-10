@@ -1,5 +1,4 @@
 import { supabase } from './supabase';
-import { assessReportLocally } from './death-assessment';
 import type { Detection } from '../supabase/functions/identify-report/detection';
 
 export type Identification = {
@@ -16,9 +15,6 @@ export type Identification = {
 
 export async function identifyReport(reportId: string): Promise<void> {
   if (!supabase) throw new Error('Supabase is not configured.');
-  const { data, error } = await supabase.functions.invoke('identify-report', { body: { report_id: reportId } });
-  if (error || data?.error) {
-    throw new Error('Your report is saved, but identification could not finish. Use Retry identification in Recent activity.');
-  }
-  await assessReportLocally(reportId);
+  const { error } = await supabase.rpc('retry_report_processing', { p_report_id: reportId });
+  if (error) throw new Error('Retry unavailable. Wait 15 minutes after a technical failure; checks already running will retry automatically.');
 }

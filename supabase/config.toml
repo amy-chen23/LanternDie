@@ -1,0 +1,9 @@
+project_id = "lanterndie"
+
+# Scheduled worker uses its own >=32-character secret, verified before any work.
+# This endpoint must never accept user credentials as worker authorization.
+[functions.process-report-jobs]
+verify_jwt = false
+
+[functions.identify-report]
+verify_jwt = true

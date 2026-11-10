@@ -23,7 +23,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - run: deno check supabase/functions/identify-report/index.ts
+      - run: deno check supabase/functions/identify-report/index.ts supabase/functions/process-report-jobs/index.ts
 
   identification-access:
     runs-on: ubuntu-latest
@@ -45,5 +45,20 @@ jobs:
         env:
           PGPASSWORD: postgres
       - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/death-assessment-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/report-overhaul-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/report-processing-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/community-review-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/admin-role-access.sql
+        env:
+          PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/admin-moderation-access.sql
         env:
           PGPASSWORD: postgres

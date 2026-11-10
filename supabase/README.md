@@ -170,3 +170,45 @@ Then make a report public and verify the second account can see its details
 and download its image, vote once, switch or remove the vote, and flag once.
 Verify self-votes and self-flags are denied, and that switching the report back
 to private blocks the second account from new detail and image requests.
+
+## Report overhaul database foundation (not yet deployed)
+
+The `report-overhaul` branch adds migration
+`20261110000000_report_overhaul_foundation.sql` for server-owned report/insect
+states, admin permissions, persistent exact-photo hashes, audit records, and
+verified-insect credits. It replaces raw-upload leaderboard counting.
+Read [rollout requirements and database API](../docs/REPORT_OVERHAUL_DATABASE.md)
+before applying it: deploy the subsequent background pipeline and matching client
+together. Existing beta reports return to pending with zero credits until reviewed.
+
+## Durable background upload pipeline (not yet deployed)
+
+Migration `20261111000000_report_processing_jobs.sql` adds transactional enqueue,
+leased worker jobs, server-computed exact-photo duplicate checks, atomic detector
+results/boxes, retries, and owner-only processing status. See the
+[pipeline and scheduler setup](../docs/REPORT_PROCESSING_PIPELINE.md) before
+deployment. `identify-report` is now a compatibility retry endpoint; detection
+runs in scheduled `process-report-jobs`. Native scoring is no longer invoked
+automatically by uploads.
+
+## Authoritative community voting (not yet deployed)
+
+`20261112000000_community_review.sql` adds revisioned review labels, expiring
+reviewer reservations, private post-vote feedback, and database-enforced
+three-matching-vote consensus. The model worker can no longer supply community
+decisions. See [community review rules and rollout](../docs/COMMUNITY_REVIEW.md).
+
+## Admin role discovery (not yet deployed)
+
+`20261113000000_admin_role_access.sql` exposes only the signed-in account's admin
+status. Membership uses existing `auth.users.id` values in `app_admins`; no user
+columns or separate login are introduced. The app shows an admin-only read queue
+and refreshes membership without requiring a new login. See
+[manual role assignment and access rules](../docs/ADMIN_ROLE.md).
+
+## Versioned admin moderation (not yet deployed)
+
+`20261114000000_admin_moderation.sql` adds protected moderation snapshots and a
+versioned action facade, image-bound box validation, and confirmation/reason-driven
+UI controls. Low-level admin mutation RPCs are now internal-only. See
+[moderation behavior and rollout](../docs/ADMIN_MODERATION.md) before deployment.
