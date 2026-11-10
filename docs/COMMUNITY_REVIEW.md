@@ -1,5 +1,10 @@
 # Community review
 
+> Deployment update (November 9, 2026): database migrations have been applied to
+> LanternDie. Worker, scheduler, and hosted-client deployment remain pending.
+> See [current rollout status](REPORT_OVERHAUL_ROLLOUT.md); implementation-time
+> statements below about the shared database are superseded by this update.
+
 Implemented on `report-overhaul`. Apply
 `20261112000000_community_review.sql` after the database foundation and background
 processing migrations. No shared project migration/deployment has been performed.

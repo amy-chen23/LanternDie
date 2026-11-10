@@ -1,5 +1,10 @@
 # Admin account access
 
+> Deployment update (November 9, 2026): database migrations have been applied to
+> LanternDie. Worker, scheduler, and hosted-client deployment remain pending.
+> See [current rollout status](REPORT_OVERHAUL_ROLLOUT.md); implementation-time
+> statements below about the shared database are superseded by this update.
+
 Implemented on `report-overhaul`; not deployed. Migration:
 `supabase/migrations/20261113000000_admin_role_access.sql`, after the three earlier
 report-overhaul migrations.

@@ -1,5 +1,10 @@
 # Admin moderation controls
 
+> Deployment update (November 9, 2026): database migrations have been applied to
+> LanternDie. Worker, scheduler, and hosted-client deployment remain pending.
+> See [current rollout status](REPORT_OVERHAUL_ROLLOUT.md); implementation-time
+> statements below about the shared database are superseded by this update.
+
 Implemented on `report-overhaul`; not deployed. Apply
 `20261114000000_admin_moderation.sql` after the four earlier overhaul migrations,
 with the matching client. Admin assignment stays manual through `app_admins`.

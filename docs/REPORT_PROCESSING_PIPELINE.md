@@ -1,5 +1,10 @@
 # Background report upload pipeline
 
+> Deployment update (November 9, 2026): database migrations have been applied to
+> LanternDie. Worker, scheduler, and hosted-client deployment remain pending.
+> See [current rollout status](REPORT_OVERHAUL_ROLLOUT.md); implementation-time
+> statements below about the shared database are superseded by this update.
+
 Implemented on `report-overhaul`; not deployed to the shared beta project.
 Apply the foundation migration first, then
 `20261111000000_report_processing_jobs.sql`. This layer does detection and routes

@@ -1,3 +1,8 @@
+> Deployment update (November 9, 2026): all local migrations are now applied to
+> LanternDie. Worker/scheduler and hosted-client deployment remain pending. See
+> [rollout status](../docs/REPORT_OVERHAUL_ROLLOUT.md); earlier deployment notes
+> below describe the implementation checkpoint before migration application.
+
 # Report storage setup
 
 Apply `migrations/20261001230742_private_reports.sql` to the free Supabase
