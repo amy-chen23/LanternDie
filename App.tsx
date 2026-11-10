@@ -886,7 +886,7 @@ function HomeScreen({
         <View style={styles.selectedPhotoNotice}>
           <Text style={styles.selectedPhotoTitle}>PHOTO SELECTED</Text>
           <Text style={styles.selectedPhotoCopy}>
-            {previewMode ? 'This preview stays on your device.' : 'Review the details before submitting. Photos are sent to Roboflow for detection. Background checks continue after you leave; reports publish after every insect is reviewed.'}
+            {previewMode ? 'This preview stays on your device.' : 'Human-verified beta: photos are sent to Roboflow for detection, then community reviewers or admins decide alive/dead. Background checks continue after you leave. Reports publish after every insect is reviewed.'}
           </Text>
         </View>
       ) : null}
@@ -1129,11 +1129,11 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
       </View>
 
       <View style={styles.previewBanner}>
-        <Text style={styles.previewBannerText}>{previewMode ? 'PREVIEW SAMPLE' : 'TEMPORARY RANKING'}</Text>
+        <Text style={styles.previewBannerText}>{previewMode ? 'PREVIEW SAMPLE' : 'HUMAN-VERIFIED BETA'}</Text>
         <Text style={styles.previewBannerDetail}>
           {previewMode
             ? 'Sample rankings for layout testing; not connected to reports.'
-            : 'Each verified dead insect earns one kill credit. Alive sightings earn zero.'}
+            : 'Community reviewers or admins verify every insect. Each verified dead insect earns one kill credit. Alive sightings earn zero.'}
         </Text>
       </View>
 

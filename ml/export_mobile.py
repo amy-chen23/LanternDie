@@ -61,6 +61,8 @@ def export(data):
         session = ort.InferenceSession(str(temporary), providers=['CPUExecutionProvider'])
         with (data / '_work/manifest.csv').open() as stream:
             rows = [r for r in csv.DictReader(stream) if r['status'] == 'ready']
+        if checkpoint.get('life_stage_scope') == 'adult':
+            rows = [r for r in rows if r.get('life_stage', '').strip().lower() == 'adult']
         if not rows:
             raise ValueError('No reviewed crops available to verify the export')
         max_error = 0.0
@@ -76,6 +78,7 @@ def export(data):
         target = output / 'lanternfly-dead.onnx'
         os.replace(temporary, target)
         metadata = {
+            'life_stage_scope': checkpoint.get('life_stage_scope', 'all'),
             'model': target.name,
             'sha256': hashlib.sha256(target.read_bytes()).hexdigest(),
             'source_checkpoint_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),

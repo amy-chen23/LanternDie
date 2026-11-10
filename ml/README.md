@@ -69,6 +69,41 @@ Unknown pre/post pairs remain a limitation; grouping by exact pixels cannot
 identify them automatically. This is still independent-image inference: groups
 only control evaluation splits, not inputs the model needs at runtime.
 
+## Adult-only improvement workflow
+
+The beta awards credit through human verification. Offline model improvement
+focuses on **adult spotted lanternflies**; it does not narrow the existing human
+review workflow to adults. Keep `confidence-training/eval/` separate from fitting.
+The current 14-image batch is now a diagnostic set, not untouched evidence for
+selecting an improved model. No new weights or cutoff are deployed by this change.
+
+Cropping now preserves a `life_stage` column in `_work/manifest.csv`, initially
+`unknown`. Review the actual crop and set `life_stage=adult` only when supported;
+use `nymph` or `unknown` for other cases. Do not rely solely on Roboflow's stage
+label: the evaluation batch includes apparent adults labeled as nymphs. Existing
+manifests can have this column added manually without rerunning remote inference.
+Keep `status=excluded` for unsuitable crops and set shared specimen/session groups.
+
+Run the adult-only experiment after reviewing stage labels:
+
+```sh
+confidence-training/.venv/bin/python ml/confidence.py train --reviewed-crops --adults-only
+```
+
+This includes only ready rows explicitly marked adult. Missing/unknown stages
+are excluded; no eligible rows causes an actionable error. Checkpoints and metrics
+record the stage scope, and ONNX export uses that scope for its reference examples.
+Prefer a separate experiment data directory via `--data` when preserving candidate
+models; a new run in the same directory replaces its local final artifact, but
+does not replace `assets/models/` or change production approval behavior.
+
+Priorities are complete crops and varied real adult examples (intact dead adults,
+open-wing living adults, different backgrounds and limb positions). Try modest
+label-preserving augmentation and a small hyperparameter comparison after splitting
+by insect/session; keep all derivatives in the original training split. Never
+augment validation/test data or count augmentations as independent insects. Network
+fine-tuning and automatic approval remain later experiments.
+
 ## 3. Fit the lightweight baseline
 
 After reviewing the crops:

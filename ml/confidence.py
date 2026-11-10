@@ -137,11 +137,12 @@ def crop(root, env_path):
     for index, row in enumerate(rows):
         fingerprint = hashlib.sha256(json.dumps([row['pixel_hash'], workspace, workflow, classes, threshold, 'crop-v1']).encode()).hexdigest()
         cache = root / '_work' / 'detections' / f'{fingerprint}.json'
-        entry = {**row, 'group': row['pixel_hash'], 'crop': '', 'status': '',
+        entry = {**row, 'group': row['pixel_hash'], 'life_stage': 'unknown', 'crop': '', 'status': '',
                  'error_detail': '', 'selection': '', 'detection_key': fingerprint}
         old = previous.get(row['path'], {})
         if old.get('pixel_hash') == row['pixel_hash']:
             entry['group'] = old.get('group') or row['pixel_hash']
+            entry['life_stage'] = old.get('life_stage') or 'unknown'
             if old.get('status') == 'excluded':
                 entry['status'] = 'excluded'
                 manifest.append(entry)
@@ -202,7 +203,7 @@ def crop(root, env_path):
             entry['error_detail'] = str(error).replace(key, '[REDACTED]')[:300]
         manifest.append(entry)
         print(f"{index+1}/{len(rows)} {row['label']}: {entry['status']}", flush=True)
-    fields = ['path', 'label', 'group', 'crop', 'status', 'pixel_hash', 'width', 'height', 'error_detail', 'selection', 'detection_key']
+    fields = ['path', 'label', 'group', 'life_stage', 'crop', 'status', 'pixel_hash', 'width', 'height', 'error_detail', 'selection', 'detection_key']
     with (root / '_work' / 'manifest.csv').open('w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
@@ -224,7 +225,19 @@ def crop(root, env_path):
     print('Review _work/review.html and manifest.csv before training. Unknown pairs are not automatically resolved.')
 
 
-def train(root, reviewed, folds):
+def training_rows(root, adults_only=False):
+    with (root / '_work/manifest.csv').open() as stream:
+        rows = [r for r in csv.DictReader(stream) if r['status'] == 'ready']
+    if adults_only:
+        # Detector stage labels can be wrong. Missing/unknown stages must not qualify.
+        rows = [r for r in rows if r.get('life_stage', '').strip().lower() == 'adult']
+    if not rows:
+        raise ValueError('No reviewed adult crops available. Set life_stage=adult in manifest.csv after checking the insect.'
+                         if adults_only else 'No ready crops. Run crop first.')
+    return rows
+
+
+def train(root, reviewed, folds, adults_only=False):
     if not reviewed:
         raise ValueError('Review _work/review.html first, then pass --reviewed-crops. This does not certify independence of specimens.')
     import numpy as np
@@ -241,10 +254,7 @@ def train(root, reviewed, folds):
     torch.manual_seed(42)
     torch.set_num_threads(4)
     torch.hub.set_dir(str(root / '_work' / 'torch-cache'))
-    with (root / '_work' / 'manifest.csv').open() as f:
-        rows = [r for r in csv.DictReader(f) if r['status'] == 'ready']
-    if not rows:
-        raise ValueError('No ready crops. Run crop first.')
+    rows = training_rows(root, adults_only)
     for row in rows:
         if not row['crop'] or not (root / row['crop']).is_file():
             raise ValueError(f"Ready row has no crop file: {row['path']}. Select or create a crop first; do not just change status.")
@@ -316,7 +326,8 @@ def train(root, reviewed, folds):
         print(f'Validation fold {fold+1}/{folds} checkpointed', flush=True)
     accepted = scores >= 0.7
     n_accepted = int(accepted.sum())
-    metrics = {'stage': 'experimental_not_calibrated', 'images_used': len(rows), 'folds': folds,
+    metrics = {'stage': 'experimental_not_calibrated', 'life_stage_scope': 'adult' if adults_only else 'all',
+        'images_used': len(rows), 'folds': folds,
         'classes': {label: int((y == number).sum()) for label, number in LABELS.items()},
         'threshold': 0.7, 'accepted_as_dead': n_accepted,
         'alive_incorrectly_accepted': int(((y == 0) & accepted).sum()),
@@ -342,6 +353,7 @@ def train(root, reviewed, folds):
     if not np.allclose(exported, final.predict_proba(x)[:, 1], atol=1e-5):
         raise ValueError('Export verification failed')
     artifact = {'architecture': 'mobilenet_v3_small_features_linear', 'state_dict': full.state_dict(),
+                'life_stage_scope': 'adult' if adults_only else 'all',
                 'input_size': 224, 'preprocessing': 'RGB; EXIF transpose; pad square with (124,116,104); bilinear; ImageNet normalization',
                 'dead_label': 1, 'calibrated': False, 'run_key': run_key}
     atomic_write(run_dir / 'classifier.pt', lambda stream: torch.save(artifact, stream))
@@ -356,12 +368,13 @@ def main():
     parser.add_argument('--data', type=Path, default=Path('confidence-training'))
     parser.add_argument('--env', type=Path, default=Path('supabase/functions/.env'))
     parser.add_argument('--reviewed-crops', action='store_true')
+    parser.add_argument('--adults-only', action='store_true', help='Train only ready crops explicitly reviewed as life_stage=adult')
     parser.add_argument('--folds', type=int, default=3, choices=[3, 4, 5])
     args = parser.parse_args()
     try:
         if args.command == 'audit': audit(args.data)
         elif args.command == 'crop': crop(args.data, args.env)
-        else: train(args.data, args.reviewed_crops, args.folds)
+        else: train(args.data, args.reviewed_crops, args.folds, args.adults_only)
     except (ValueError, FileNotFoundError) as error:
         parser.exit(1, f'{error}\n')
 

@@ -1,11 +1,17 @@
 # LanternDie
 
 LanternDie is an Expo app for submitting spotted lanternfly photo reports.
-Reports are private by default; users can share them with signed-in members.
-Reports and photos sync between the website and Expo Go. Email/password
-sign-in works in Expo Go and on the website. Google sign-in works in a native
-build and on the website. Rankings, verification, points, and streaks are
-still placeholders.
+The human-verified beta uses background lanternfly detection, followed by
+per-insect community or admin decisions. Reports publish to signed-in members
+after every insect has a final decision; each verified dead insect earns one
+kill credit. Weekly/monthly rankings use those credits. Automatic alive/dead
+model approval is disabled. Points, streak rewards, and earned badges remain
+future work.
+
+Email/password sign-in works in Expo Go and on the website. Google sign-in works
+in a native build and on the website. Reports and photos sync through Supabase.
+See [beta release details](docs/HUMAN_VERIFIED_BETA.md) and the
+[adult-only offline model workflow](ml/README.md#adult-only-improvement-workflow).
 
 ## Public repository mirror
 

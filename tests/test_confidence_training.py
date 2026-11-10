@@ -15,6 +15,22 @@ spec.loader.exec_module(confidence)
 
 
 class ConfidencePipelineTests(unittest.TestCase):
+    def test_adult_only_training_requires_explicit_stage_and_ready_crop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / '_work').mkdir()
+            manifest = root / '_work/manifest.csv'
+            manifest.write_text('path,label,status,life_stage\n'
+                                'adult.png,dead,ready,adult\n'
+                                'nymph.png,alive,ready,nymph\n'
+                                'unknown.png,alive,ready,unknown\n'
+                                'excluded.png,dead,excluded,adult\n')
+            self.assertEqual([r['path'] for r in confidence.training_rows(root, True)], ['adult.png'])
+            self.assertEqual(len(confidence.training_rows(root)), 3)
+            manifest.write_text('path,label,status\nlegacy.png,alive,ready\n')
+            with self.assertRaisesRegex(ValueError, 'No reviewed adult crops'):
+                confidence.training_rows(root, True)
+
     def test_interrupted_atomic_write_preserves_previous_checkpoint(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'checkpoint'
@@ -73,7 +89,7 @@ class ConfidencePipelineTests(unittest.TestCase):
                 alive = next(r for r in rows if r['label'] == 'alive')
                 self.assertEqual(alive['status'], 'multiple_detections_review')
                 self.assertIn('Candidate 2', (root / '_work/review.html').read_text())
-                alive['selection'], alive['group'] = '2', 'known-insect'
+                alive['selection'], alive['group'], alive['life_stage'] = '2', 'known-insect', 'adult'
                 with manifest_path.open('w', newline='') as f:
                     writer = csv.DictWriter(f, fieldnames=list(rows[0]))
                     writer.writeheader()
@@ -84,6 +100,7 @@ class ConfidencePipelineTests(unittest.TestCase):
                 self.assertEqual(alive['status'], 'ready')
                 self.assertEqual(alive['selection'], '2')
                 self.assertEqual(alive['group'], 'known-insect')
+                self.assertEqual(alive['life_stage'], 'adult')
                 self.assertTrue((root / alive['crop']).is_file())
 
     def test_audit_rejects_same_pixels_under_conflicting_labels(self):
