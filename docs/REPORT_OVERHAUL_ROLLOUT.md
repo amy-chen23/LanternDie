@@ -27,19 +27,27 @@ No photos or users were deleted. Existing private test submissions entered the
 public verification workflow as authorized; they are not published feed posts
 until every insect has a final decision.
 
+## Worker and queue follow-up
+
+The worker and updated retry endpoint are deployed. Private worker authentication,
+Vault settings, and the once-per-minute Cron schedule are configured. Live manual
+and scheduled calls succeeded, created insect records, and moved reports into
+community review. Temporary local secret files were removed after deployment.
+An admin account has since been assigned manually.
+
+Migration `20261115000000_admin_attention_unclassified.sql` is also applied:
+Needs attention now includes unclassified insect reviews immediately, rather than
+waiting 48 hours. Community voting is still available.
+
 ## Still pending
 
-- Push the committed branch to GitHub (only local commits were requested).
 - Deploy the matching hosted app/client.
-- Deploy the updated `identify-report` and new `process-report-jobs` functions.
-- Configure the worker secret and Vault entries, then install its Cron schedule.
-- Assign the intended existing account UUIDs to `app_admins` manually.
 - Run live multi-account, mouse, and touch checks.
 - Evaluate the independent image set and deploy alive/dead server inference.
 
-**The nine queued jobs will not run until worker deployment and scheduling.**
-The previously deployed client/functions may not match the migrated schema;
-use this branch's client for testing and complete the coordinated rollout.
+**Background processing is running.** Reports reach the feed after all insects
+receive final decisions. The hosted client may still be older than this schema;
+use this branch's local client until the hosted-client rollout is complete.
 
 See [pipeline setup](REPORT_PROCESSING_PIPELINE.md),
 [admin assignment](ADMIN_ROLE.md), and [moderation controls](ADMIN_MODERATION.md).

@@ -1,7 +1,7 @@
 # Admin moderation controls
 
 > Deployment update (November 9, 2026): database migrations have been applied to
-> LanternDie. Worker, scheduler, and hosted-client deployment remain pending.
+> LanternDie. The worker and scheduler are live; hosted-client deployment remains pending.
 > See [current rollout status](REPORT_OVERHAUL_ROLLOUT.md); implementation-time
 > statements below about the shared database are superseded by this update.
 
@@ -13,8 +13,11 @@ with the matching client. Admin assignment stays manual through `app_admins`.
 
 The Admin tab provides:
 
-- **Needs attention:** the existing oldest-first admin queue (no detections,
-  terminal processing failures, and unresolved community reviews after 48 hours).
+- **Needs attention:** the oldest-first admin queue: insects awaiting alive/dead
+  classification appear immediately, alongside missed detections and terminal
+  processing failures. Corrections to published reports also appear until their
+  active insects have final decisions. Rejected and fully resolved reports are
+  available under All reports. The attention view no longer waits 48 hours.
 - **All reports:** the most recent 10 submissions, including published/rejected
   reports, so existing decisions can be overridden.
 - **Find report:** exact UUID lookup for older or specific submissions.

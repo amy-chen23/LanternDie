@@ -151,8 +151,8 @@ flow. The feed filters published reports, while Recent activity shows processing
 status. Community voting now uses five-seat reviewer panels and three matching labels
 per insect. Admin role discovery and moderation controls are implemented, including box
 corrections, overrides, rejection/restoration, and audit history. Server alive/dead
-inference remains a subsequent step. This branch's database migrations are applied to LanternDie; functions, the worker
-schedule, and the hosted client still need deployment. See
+inference remains a subsequent step. This branch's database migrations, functions, and worker schedule are deployed to
+LanternDie. The hosted client still needs deployment. See
 [current rollout status](docs/REPORT_OVERHAUL_ROLLOUT.md).
 See [background pipeline rollout](docs/REPORT_PROCESSING_PIPELINE.md) and
 [community review](docs/COMMUNITY_REVIEW.md), and [admin roles](docs/ADMIN_ROLE.md), and [moderation](docs/ADMIN_MODERATION.md).

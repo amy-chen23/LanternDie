@@ -35,7 +35,7 @@ export function AdminAccess({ userId, checkAccess, onModerated }: { userId: stri
   return <><ScrollView contentContainerStyle={styles.page}>
     <Text style={styles.eyebrow}>LANTERNDIE / ADMIN</Text>
     <Text accessibilityRole="header" style={styles.title}>Report moderation</Text>
-    <Text style={styles.note}>Review pending issues, including reviews unresolved after 48 hours. Lists show up to 10 reports; use an ID to find an older submission.</Text>
+    <Text style={styles.note}>Review insects awaiting an alive/dead decision, missed detections, and failed photo checks. Lists show up to 10 reports; use an ID to find an older submission.</Text>
     <View style={styles.row}>
       <Pressable accessibilityRole="button" style={styles.button} accessibilityState={{ selected: !all }} onPress={() => { setLookup(''); setFilterId(''); if (!all && !filterId) void refresh(); setAll(false); }}><Text>Needs attention</Text></Pressable>
       <Pressable accessibilityRole="button" style={styles.button} accessibilityState={{ selected: all }} onPress={() => { setLookup(''); setFilterId(''); if (all && !filterId) void refresh(); setAll(true); }}><Text>All reports</Text></Pressable>
@@ -51,7 +51,7 @@ export function AdminAccess({ userId, checkAccess, onModerated }: { userId: stri
     {loading ? <ActivityIndicator /> : reports.length ? reports.map(report => <View key={report.id} style={styles.card}>
       {report.photo_url ? <Image accessibilityLabel="Submitted report photo" source={{ uri: report.photo_url }} style={styles.photo} resizeMode="contain" /> : <Text style={styles.note}>Photo unavailable.</Text>}
       <Text style={styles.heading}>{report.author_name}</Text>
-      <Text style={styles.note}>{all || filterId ? report.workflow_status.replaceAll('_', ' ') : report.workflow_status === 'admin_review' ? 'Needs admin review' : 'Community review overdue'}</Text>
+      <Text style={styles.note}>{all || filterId ? report.workflow_status.replaceAll('_', ' ') : report.workflow_status === 'admin_review' ? 'Needs admin review' : 'Alive/dead decision needed'}</Text>
       <Text style={styles.note}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
       {report.caption ? <Text style={styles.note}>{report.caption}</Text> : null}
       <ReportIdentification report={report} />

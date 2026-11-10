@@ -1,5 +1,5 @@
 > Deployment update (November 9, 2026): all local migrations are now applied to
-> LanternDie. Worker/scheduler and hosted-client deployment remain pending. See
+> LanternDie. Worker/scheduler are live; hosted-client deployment remains pending. See
 > [rollout status](../docs/REPORT_OVERHAUL_ROLLOUT.md); earlier deployment notes
 > below describe the implementation checkpoint before migration application.
 
@@ -217,3 +217,10 @@ and refreshes membership without requiring a new login. See
 versioned action facade, image-bound box validation, and confirmation/reason-driven
 UI controls. Low-level admin mutation RPCs are now internal-only. See
 [moderation behavior and rollout](../docs/ADMIN_MODERATION.md) before deployment.
+
+## Unclassified insects in Needs attention
+
+`20261115000000_admin_attention_unclassified.sql` includes pending alive/dead
+reviews in the admin queue immediately, including unresolved corrections on
+published reports. Community voting remains available; no decisions are changed
+by this queue update.

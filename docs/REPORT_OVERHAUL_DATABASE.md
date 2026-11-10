@@ -1,7 +1,7 @@
 # Report overhaul database foundation
 
 > Deployment update (November 9, 2026): database migrations have been applied to
-> LanternDie. Worker, scheduler, and hosted-client deployment remain pending.
+> LanternDie. The worker and scheduler are live; hosted-client deployment remains pending.
 > See [current rollout status](REPORT_OVERHAUL_ROLLOUT.md); implementation-time
 > statements below about the shared database are superseded by this update.
 
