@@ -1,5 +1,14 @@
 # Report storage setup
 
+Apply `migrations/20261025000000_field_points.sql` after the existing migrations
+to enable Profile field points. It sums upvotes minus downvotes for all reports
+owned by the signed-in member, including private reports. Negative totals are
+allowed; accounts without reports receive zero. The total refreshes when Profile
+opens. Test with two accounts: vote on the author's public report, reopen the
+author's Profile, remove or switch the vote, and check the new total. Making
+the report private must preserve its contribution. Signed-out callers cannot
+execute the function.
+
 Apply `migrations/20260928000000_private_reports.sql` to the free Supabase
 project before testing report submission. It creates a private photo bucket
 limited to 5 MB JPEG files and a `reports` table. Both are restricted to the

@@ -74,6 +74,15 @@ async function decorateReports(rows: any[], viewerId: string): Promise<Report[]>
   })));
 }
 
+export async function loadFieldPoints(): Promise<number> {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabase.rpc('get_field_points');
+  if (error) throw error;
+  const points = Number(data);
+  if (data == null || !Number.isSafeInteger(points)) throw new Error('Could not read field points.');
+  return points;
+}
+
 export async function loadReports(userId: string): Promise<Report[]> {
   if (!supabase) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase.from('reports').select(fields)

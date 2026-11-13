@@ -1,3 +1,5 @@
+//front end, main application, handles session, navigation, screen, events, styles
+
 import { memo, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -19,7 +21,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
 import { Flag, House, Pencil, UserRound, UsersRound } from 'lucide-react-native';
-import { loadReports, loadPublicReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
+import { loadFieldPoints, loadReports, loadPublicReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { supabase } from './lib/supabase';
 
@@ -71,6 +73,22 @@ export default function App() {
   const [previewMode, setPreviewMode] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [screen, setScreen] = useState<Screen>('home');
+  const [fieldPoints, setFieldPoints] = useState<{ userId: string; value: number | null; error: string } | null>(null);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    setFieldPoints(null);
+    if (!userId || screen !== 'profile') return;
+    let cancelled = false;
+    loadFieldPoints()
+      .then(value => {
+        if (!cancelled) setFieldPoints({ userId, value, error: '' });
+      })
+      .catch(() => {
+        if (!cancelled) setFieldPoints({ userId, value: null, error: 'Could not load field points. Reopen Profile to retry.' });
+      });
+    return () => { cancelled = true; };
+  }, [session?.user.id, screen]);
   const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [reportDetails, setReportDetails] = useState<ReportDetails>(newReportDetails);
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
@@ -439,6 +457,10 @@ export default function App() {
               savedDisplayName={savedDisplayName}
               previewMode={previewMode}
               submittedCount={visibleReports.length}
+              fieldPoints={previewMode ? '0' : fieldPoints?.userId === session?.user.id
+                ? fieldPoints?.value == null ? 'Unavailable' : String(fieldPoints.value)
+                : 'Loading...'}
+              fieldPointsError={fieldPoints?.userId === session?.user.id ? fieldPoints?.error ?? '' : ''}
               onSaveDisplayName={saveDisplayName}
               onSignOut={signOut}
             />
@@ -1021,6 +1043,8 @@ function ProfileScreen({
   savedDisplayName,
   previewMode,
   submittedCount,
+  fieldPoints,
+  fieldPointsError,
   onSaveDisplayName,
   onSignOut,
 }: {
@@ -1033,6 +1057,8 @@ function ProfileScreen({
   savedDisplayName: string;
   previewMode: boolean;
   submittedCount: number;
+  fieldPoints: string;
+  fieldPointsError: string;
   onSaveDisplayName: (name: string) => Promise<void>;
   onSignOut: () => void;
 }) {
@@ -1166,8 +1192,9 @@ function ProfileScreen({
         <ProfileStat label="SUBMITTED REPORTS" value={String(submittedCount)} />
         <ProfileStat label="STREAK" value="0 days" />
         <ProfileStat label="VERIFIED KILLS" value="0" />
-        <ProfileStat label="FIELD POINTS" value="0" />
+        <ProfileStat label="FIELD POINTS" value={fieldPoints} />
       </View>
+      {fieldPointsError ? <Text accessibilityRole="alert" style={styles.formMessage}>{fieldPointsError}</Text> : null}
 
       <Text style={[styles.sectionEyebrow, styles.badgesEyebrow]}>BADGES</Text>
       <View style={styles.badgeRow}>

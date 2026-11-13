@@ -4,7 +4,9 @@ LanternDie is an Expo app for submitting spotted lanternfly photo reports.
 Reports are private by default; users can share them with signed-in members.
 Reports and photos sync between the website and Expo Go. Email/password
 sign-in works in Expo Go and on the website. Google sign-in works in a native
-build and on the website. Rankings, verification, points, and streaks are
+build and on the website. Field points total upvotes minus downvotes across
+all of a member's reports, including private reports, and refresh when Profile
+opens. Rankings, verification, and streaks are
 still placeholders.
 
 ## Public repository mirror
@@ -151,7 +153,7 @@ upvote, downvote, or flag another member's report as inaccurate. The first flag
 shows an inaccuracy badge; this is not a verification decision. Votes and flags
 can be removed. Device GPS is not collected, and friends-only sharing is not
 available until friendships exist. The submitted count updates from saved
-reports. Lanternfly classification, verified counts, points, and leaderboard
+reports. Lanternfly classification, verified counts, and leaderboard
 data are not implemented.
 
 ## Deploying
