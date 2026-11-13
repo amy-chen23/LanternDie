@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../lib/typography';
 import type { Report } from '../lib/reports';
 import { loadAdminReports } from '../lib/reports';
 import { ReportIdentification } from './ReportIdentification';
@@ -63,9 +64,9 @@ export function AdminAccess({ userId, checkAccess, onModerated }: { userId: stri
   </>;
 }
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, input: { minHeight: 44, borderWidth: 1, borderColor: '#CCC', padding: 12 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, input: { borderRadius: 8, minHeight: 44, borderWidth: 1, borderColor: '#CCC', padding: 12 },
   page: { padding: 24, gap: 16, paddingBottom: 40 }, eyebrow: { color: '#666', fontSize: 10, fontWeight: '700', letterSpacing: 1.4 },
   title: { color: '#111', fontSize: 28, fontWeight: '700' }, note: { color: '#666', fontSize: 13, lineHeight: 20 },
-  heading: { color: '#111', fontWeight: '700', fontSize: 16 }, button: { minHeight: 44, padding: 12, borderWidth: 1, borderColor: '#CCC', justifyContent: 'center' },
-  card: { padding: 16, gap: 10, borderWidth: 1, borderColor: '#DDD', backgroundColor: '#FFF' }, photo: { width: '100%', height: 220 }, error: { color: '#B00020', fontSize: 13 },
+  heading: { color: '#111', fontWeight: '700', fontSize: 16 }, button: { borderRadius: 8, minHeight: 44, padding: 12, borderWidth: 1, borderColor: '#CCC', justifyContent: 'center' },
+  card: { borderRadius: 16, padding: 16, gap: 10, borderWidth: 1, borderColor: '#DDD', backgroundColor: '#FFF' }, photo: { borderRadius: 8, width: '100%', height: 220 }, error: { color: '#B00020', fontSize: 13 },
 });

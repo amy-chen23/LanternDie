@@ -2,6 +2,7 @@ import type { ImagePickerAsset } from 'expo-image-picker';
 import * as Crypto from 'expo-crypto';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { decode } from 'base64-arraybuffer';
+import { loadProfilePhotos } from './profile-photo';
 import { supabase } from './supabase';
 import type { ProcessingStatus, WorkflowStatus } from './report-processing';
 import type { Identification } from './identification';
@@ -17,7 +18,7 @@ export type ReportInsect = { id: string; report_id: string; box: { x: number; y:
 export type Report = {
   id: string; user_id: string; created_at: string; photo_path: string; photo_url: string | null;
   observed_on: string; place_name: string | null; caption: string | null; visibility: Visibility;
-  upvotes: number; downvotes: number; flagged_inaccurate: boolean; author_name: string;
+  upvotes: number; downvotes: number; flagged_inaccurate: boolean; author_name: string; author_photo_url: string | null;
   my_vote: -1 | 0 | 1; my_flag: boolean;
   workflow_status: WorkflowStatus;
   insects_ready: boolean;
@@ -67,7 +68,7 @@ async function decorateReports(rows: any[], viewerId: string, previous: Report[]
   if (!supabase || !rows.length) return [];
   const reportIds = rows.map(row => row.id as string);
   const authorIds = [...new Set(rows.map(row => row.user_id as string))];
-  const [names, votes, flags, identifications, assessments, verificationVotes, processing, insects, credits] = await Promise.all([
+  const [names, votes, flags, identifications, assessments, verificationVotes, processing, insects, credits, authorPhotos] = await Promise.all([
     supabase.from('community_profiles').select('user_id, display_name').in('user_id', authorIds),
     supabase.from('report_votes').select('report_id, value').eq('voter_id', viewerId).in('report_id', reportIds),
     supabase.from('report_flags').select('report_id').eq('flagger_id', viewerId).in('report_id', reportIds),
@@ -81,6 +82,7 @@ async function decorateReports(rows: any[], viewerId: string, previous: Report[]
       .select('report_id,status,attempts,available_at,last_error_code,updated_at').in('report_id', reportIds),
     supabase.from('report_insects').select('id,report_id,box,revision,label').in('report_id', reportIds).eq('active', true).order('id'),
     supabase.from('report_kill_credits').select('report_id,dead_insects').in('report_id', reportIds),
+    loadProfilePhotos(authorIds),
   ]);
   if (names.error) throw names.error;
   if (votes.error) throw votes.error;
@@ -98,6 +100,7 @@ async function decorateReports(rows: any[], viewerId: string, previous: Report[]
   return Promise.all(rows.map(async row => ({
     ...row, photo_url: photos.has(row.photo_path) ? photos.get(row.photo_path)! : await loadPhoto(row.photo_path),
     author_name: nameById.get(row.user_id) ?? 'Field member',
+    author_photo_url: authorPhotos.get(row.user_id) ?? null,
     my_vote: (voteById.get(row.id) ?? 0) as -1 | 0 | 1,
     my_flag: flagIds.has(row.id),
     insects: (insects.data ?? []).filter(insect => insect.report_id === row.id) as ReportInsect[],

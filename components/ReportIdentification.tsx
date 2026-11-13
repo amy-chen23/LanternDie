@@ -1,12 +1,22 @@
 import { useState } from 'react';
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../lib/typography';
 import { identifyReport } from '../lib/identification';
 import type { Report } from '../lib/reports';
 import { reportProcessingMessage } from '../lib/report-processing';
 
+export function identificationActionLabel(report: Report): 'Results' | 'Processing' | 'Unavailable' {
+  if (report.processing && ['queued', 'running', 'retry'].includes(report.processing.status)) return 'Processing';
+  if (report.processing?.status === 'failed' || report.identification?.status === 'failed') return 'Unavailable';
+  if (report.identification?.status === 'processing' || report.workflow_status === 'pending_detection') return 'Processing';
+  return report.identification || report.insects_ready || report.insects.length ? 'Results' : 'Unavailable';
+}
+
 function identificationTitle(report: Report) {
   const result = report.identification;
-  if (report.processing && ['queued', 'running', 'retry'].includes(report.processing.status)) return 'Photo checks pending';
+  const action = identificationActionLabel(report);
+  if (action === 'Processing') return 'Photo checks pending';
+  if (action === 'Unavailable') return 'Identification unavailable';
   if (report.insects_ready || report.insects.length) return report.insects.length
     ? `${report.insects.length} lanternfl${report.insects.length === 1 ? 'y' : 'ies'} detected` : 'No active insect boxes';
   return !result ? 'Lanternfly identification not run'
@@ -39,7 +49,7 @@ export function IdentificationResultsModal({ report, onClose, error }: {
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={styles.dialogContent}>
-          <Text style={styles.note}>Your report is saved. Lanternfly detection and community verification are separate checks.</Text>
+          <Text style={styles.note}>Lanternfly detection and community verification are separate checks.</Text>
           {report.photo_url ? <View style={{ width: '100%', aspectRatio: hasBoxes ? result.image_width! / result.image_height! : 4 / 3 }}>
             <Image source={{ uri: report.photo_url }} resizeMode={hasBoxes ? 'stretch' : 'contain'} style={StyleSheet.absoluteFill} accessibilityLabel="Submitted photo with numbered lanternfly detection boxes" />
             {hasBoxes ? boxes.map((box, index) => <View key={index} pointerEvents="none" style={[styles.box, {
@@ -55,9 +65,9 @@ export function IdentificationResultsModal({ report, onClose, error }: {
           {result?.status === 'detected' || result?.status === 'not_detected' ? <Text style={styles.note}>
             Detection threshold: {Math.round((result.confidence_threshold ?? 0) * 100)}%. This measures identification, not death.
           </Text> : null}
-          {result?.status === 'processing' ? <Text style={styles.note}>The check is still running. Refresh Recent activity to see the result.</Text> : null}
+          {identificationActionLabel(report) === 'Processing' ? <Text style={styles.note}>Photo checks are pending. Close these results and refresh the feed or report list for updates.</Text> : null}
           {error || result?.error_message ? <Text accessibilityRole="alert" style={styles.error}>{error || result?.error_message}</Text> : null}
-          {!result || result.status === 'failed' ? <Text style={styles.note}>Processing status is shown in Recent activity. Technical failures can be retried after 15 minutes.</Text> : null}
+          {!result || result.status === 'failed' ? <Text style={styles.note}>Results are not available yet. For technical failures, the report owner can retry checks from Recent activity after 15 minutes.</Text> : null}
         </ScrollView>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.doneButton}><Text style={styles.doneText}>Done</Text></Pressable>
       </View>
@@ -115,7 +125,7 @@ export function ReportIdentification({ report, onChanged }: {
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.55)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  dialog: { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: '#FFFFFF', borderRadius: 12, overflow: 'hidden', flexShrink: 1 },
+  dialog: { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: '#FFFFFF', borderRadius: 16, overflow: 'hidden', flexShrink: 1 },
   dialogHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 20, borderBottomWidth: 1, borderBottomColor: '#E2E2E2' },
   headingCopy: { flex: 1, gap: 6 },
   eyebrow: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: '#696969' },
