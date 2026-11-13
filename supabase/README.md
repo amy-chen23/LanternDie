@@ -24,6 +24,14 @@ are downloaded with the member's session so a visibility change affects new
 requests immediately. The app needs this migration before using the new upload
 form or community feed.
 
+## Author votes
+
+Apply `migrations/20261113183923_report_author_votes.sql` after the report overhaul
+foundation before using author voting. Every new report receives the author's
+upvote automatically; existing reports without an author vote receive one too.
+Authors can change or remove their vote on published reports through the feed.
+The vote is stored in `report_votes` and uses the existing vote-count trigger.
+
 ## Lanternfly identification
 
 Apply `migrations/20261019180000_report_identification.sql` before running this
