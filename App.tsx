@@ -1068,19 +1068,15 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
         {report.caption ? <Text style={styles.communityCaption}>{report.caption}</Text> : null}
         {report.flagged_inaccurate ? <Text style={styles.flagBadge}>Flagged for inaccuracy</Text> : null}
         {report.workflow_status === 'published' ? <View style={styles.actionRow}>
-          {report.user_id !== userId ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
-              disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
-              <Text style={report.my_vote === 1 ? styles.voteArrowSelected : styles.voteArrow}>↑</Text>
-            </Pressable>
-          ) : null}
+          <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
+            disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
+            <Text style={report.my_vote === 1 ? styles.voteArrowSelected : styles.voteArrow}>↑</Text>
+          </Pressable>
           <Text accessibilityLabel={`Score ${reportScore(report)}`} style={styles.communityScore}>{reportScore(report)}</Text>
-          {report.user_id !== userId ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Downvote report" accessibilityState={{ selected: report.my_vote === -1 }}
-              disabled={Boolean(busyId)} onPress={() => onVote(report, -1)} style={[styles.voteButton, report.my_vote === -1 && styles.voteButtonSelected]}>
-              <Text style={report.my_vote === -1 ? styles.voteArrowSelected : styles.voteArrow}>↓</Text>
-            </Pressable>
-          ) : null}
+          <Pressable accessibilityRole="button" accessibilityLabel="Downvote report" accessibilityState={{ selected: report.my_vote === -1 }}
+            disabled={Boolean(busyId)} onPress={() => onVote(report, -1)} style={[styles.voteButton, report.my_vote === -1 && styles.voteButtonSelected]}>
+            <Text style={report.my_vote === -1 ? styles.voteArrowSelected : styles.voteArrow}>↓</Text>
+          </Pressable>
         </View> : null}
         {report.workflow_status === 'published' && report.user_id !== userId ? <Pressable accessibilityRole="button" accessibilityLabel={report.my_flag ? 'Remove inaccuracy flag' : 'Flag as inaccurate'}
           disabled={Boolean(busyId)} onPress={() => onFlag(report)} style={styles.flagAction}>
