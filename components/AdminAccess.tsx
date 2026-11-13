@@ -5,6 +5,7 @@ import type { Report } from '../lib/reports';
 import { loadAdminReports } from '../lib/reports';
 import { ReportIdentification } from './ReportIdentification';
 import { AdminModeration } from './AdminModeration';
+import { PageHeader } from './PageHeader';
 
 export function AdminAccess({ userId, checkAccess, onModerated }: { userId: string; checkAccess: () => Promise<boolean>; onModerated: () => Promise<void> }) {
   const [reports, setReports] = useState<Report[]>([]);
@@ -34,7 +35,7 @@ export function AdminAccess({ userId, checkAccess, onModerated }: { userId: stri
     return () => { alive.current = false; version.current++; };
   }, [userId, all, filterId]);
   return <><ScrollView contentContainerStyle={styles.page}>
-    <Text style={styles.eyebrow}>LANTERNDIE / ADMIN</Text>
+    <PageHeader label="ADMIN" />
     <Text accessibilityRole="header" style={styles.title}>Report moderation</Text>
     <Text style={styles.note}>Review insects awaiting an alive/dead decision, missed detections, and failed photo checks. Lists show up to 10 reports; use an ID to find an older submission.</Text>
     <View style={styles.row}>
