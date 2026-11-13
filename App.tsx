@@ -11,22 +11,21 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
+import { Text, TextInput, useAppFonts } from './lib/typography';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
-import { Flag, House, Pencil, Shield, Trophy, UserRound, UsersRound } from 'lucide-react-native';
+import { Flag, House, Pencil, Search, RotateCw, Shield, Trophy, UserRound, UsersRound } from 'lucide-react-native';
 import { loadReports, loadPublicReports, loadVerificationReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { loadLeaderboard, type LeaderboardEntry, type LeaderboardPeriod } from './lib/leaderboard';
 import { supabase } from './lib/supabase';
 import { reportProcessingMessage, hasPendingProcessing } from './lib/report-processing';
-import { ReportIdentification } from './components/ReportIdentification';
+import { ReportIdentification, IdentificationResultsModal, identificationActionLabel } from './components/ReportIdentification';
 import { CommunityReview } from './components/CommunityReview';
 import { AdminAccess } from './components/AdminAccess';
 import { useAdminRole } from './hooks/useAdminRole';
@@ -95,6 +94,7 @@ function displayNameError(value: string): string | null {
 }
 
 export default function App() {
+  const [fontsLoaded, fontError] = useAppFonts();
   const [session, setSession] = useState<Session | null>(null);
   const adminRole = useAdminRole(session?.user.id);
   const [previewMode, setPreviewMode] = useState(false);
@@ -446,6 +446,10 @@ export default function App() {
     if (data.user) {
       setSession(current => current?.user.id === data.user.id ? { ...current, user: data.user } : current);
     }
+  }
+
+  if (!fontsLoaded && !fontError) {
+    return <SafeAreaView style={styles.loadingScreen}><ActivityIndicator color={palette.black} size="large" /></SafeAreaView>;
   }
 
   if (loadingSession) {
@@ -809,7 +813,6 @@ function HomeScreen({
             <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.homeLogo} />
             <Text style={styles.homeBrandText}>LANTERNDIE  /  FIELD LOG</Text>
           </View>
-          <Text style={styles.greeting}>Good to see you.</Text>
         </View>
         <Pressable accessibilityLabel="Open profile" onPress={onOpenProfile} style={styles.avatarButton}>
           {profilePhotoUrl ? <Image source={{ uri: profilePhotoUrl }} style={styles.homeAvatarImage} /> : (
@@ -863,7 +866,6 @@ function HomeScreen({
           <Text style={styles.sectionEyebrow}>ADD TO THE COUNT</Text>
           <Text style={styles.sectionTitle}>Log a lanternfly</Text>
         </View>
-        <Text style={styles.sectionIndex}>01 / 03</Text>
       </View>
 
       {!editingReportId ? <Pressable
@@ -922,7 +924,6 @@ function HomeScreen({
           <Text style={styles.sectionEyebrow}>YOUR RECORD</Text>
           <Text style={styles.sectionTitle}>Recent activity</Text>
         </View>
-        <Text style={styles.sectionIndex}>02 / 03</Text>
       </View>
       {!previewMode ? (
         <Pressable accessibilityRole="button" onPress={onRefreshReports} style={styles.refreshButton}>
@@ -987,6 +988,28 @@ const CommunityPhoto = memo(function CommunityPhoto({ uri }: { uri: string | nul
   return uri ? <Image source={{ uri }} style={styles.communityPhoto} /> : <View style={styles.communityPhoto} />;
 });
 
+function CommunityAuthor({ report }: { report: Report }) {
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const photoUri = report.author_photo_url;
+  return <View style={styles.communityAuthor}>
+    <View style={styles.communityAuthorAvatar}>
+      {photoUri && photoUri !== failedUri ? <Image source={{ uri: photoUri }} style={styles.communityAuthorPhoto}
+        accessibilityLabel={`${report.author_name}'s profile photo`} onError={() => setFailedUri(photoUri)} />
+        : <Text style={styles.avatarText}>{report.author_name.trim().slice(0, 1).toUpperCase() || '?'}</Text>}
+    </View>
+    <Text style={[styles.emptyActivityTitle, styles.communityAuthorName]}>{report.author_name}</Text>
+  </View>;
+}
+
+function CommunityResultsButton({ report, review = false, onPress }: { report: Report; review?: boolean; onPress: () => void }) {
+  const label = review ? 'Review sighting' : identificationActionLabel(report);
+  return <Pressable accessibilityRole="button" accessibilityLabel={review ? `Review sighting by ${report.author_name}` : `View identification results for sighting by ${report.author_name}: ${label}`}
+    onPress={onPress} style={({ pressed }) => [styles.communityResultsButton, report.photo_url ? styles.communityResultsOverlay : styles.communityResultsFallback, pressed && styles.pressed]}>
+    <Search size={18} color={palette.ink} strokeWidth={2} />
+    <Text style={styles.communityResultsText}>{label}</Text>
+  </Pressable>;
+}
+
 function CommunityScreen({ previewMode, reports, verificationReports, loading, error, busyId, userId, onRefresh, onVote, onFlag, onOpenLeaderboard }: {
   previewMode: boolean; reports: Report[]; verificationReports: Report[]; loading: boolean; error: string; busyId: string | null; userId: string | null;
   onRefresh: () => Promise<void>; onVote: (report: Report, value: -1 | 1) => void; onFlag: (report: Report) => void;
@@ -994,6 +1017,7 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
 }) {
   const [verificationOnly, setVerificationOnly] = useState(false);
   const [reviewReport, setReviewReport] = useState<Report | null>(null);
+  const [resultsReport, setResultsReport] = useState<Report | null>(null);
   const reviewReports = verificationReports;
   const displayed = verificationOnly ? reviewReports : reports;
   return (<>
@@ -1001,10 +1025,6 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
       <View style={styles.communityHeader}>
         <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.pageLogo} />
         <Text style={styles.eyebrow}>LANTERNDIE  /  COMMUNITY</Text>
-        <Text style={styles.communityTitle}>Out here, together.</Text>
-        <Text style={styles.communityDescription}>
-          Recent public sightings from the community.
-        </Text>
       </View>
       {previewMode ? (
         <View style={styles.previewBanner}>
@@ -1013,27 +1033,37 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
         </View>
       ) : null}
 
-      <View style={styles.sectionHeadingRow}>
-        <View>
-          <Text style={styles.sectionEyebrow}>FROM THE FIELD</Text>
-          <Text style={styles.sectionTitle}>Community feed</Text>
+      <View style={styles.feedToolbar}>
+        <View style={styles.feedFilters}>
+          <Pressable accessibilityRole="button" accessibilityState={{ selected: !verificationOnly }}
+            onPress={() => setVerificationOnly(false)}
+            style={({ pressed }) => [styles.feedFilterButton, !verificationOnly && styles.feedFilterSelected, pressed && styles.pressed]}>
+            <Text style={[styles.feedFilterText, !verificationOnly && styles.feedFilterTextSelected]}>All sightings</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityState={{ selected: verificationOnly }}
+            onPress={() => setVerificationOnly(true)}
+            style={({ pressed }) => [styles.feedFilterButton, verificationOnly && styles.feedFilterSelected, pressed && styles.pressed]}>
+            <Text style={[styles.feedFilterText, verificationOnly && styles.feedFilterTextSelected]}>Needs your verification ({reviewReports.length})</Text>
+          </Pressable>
         </View>
-        <Text style={styles.sectionIndex}>01 / 02</Text>
-      </View>
-      {!previewMode ? <Pressable accessibilityRole="button" onPress={onRefresh} style={styles.refreshButton}><Text style={styles.refreshText}>Refresh feed</Text></Pressable> : null}
-      <View style={styles.actionRow}>
-        <Pressable accessibilityRole="button" accessibilityState={{ selected: !verificationOnly }} onPress={() => setVerificationOnly(false)} style={styles.refreshButton}><Text style={styles.refreshText}>All sightings</Text></Pressable>
-        <Pressable accessibilityRole="button" accessibilityState={{ selected: verificationOnly }} onPress={() => setVerificationOnly(true)} style={styles.refreshButton}><Text style={styles.refreshText}>Needs your verification ({reviewReports.length})</Text></Pressable>
+        {!previewMode ? <Pressable accessibilityRole="button" accessibilityLabel="Refresh feed"
+          accessibilityState={{ disabled: loading, busy: loading }} disabled={loading} onPress={onRefresh}
+          style={({ pressed }) => [styles.feedReloadButton, loading && styles.disabled, pressed && styles.pressed]}>
+          {loading ? <ActivityIndicator size="small" color={palette.red} /> : <RotateCw color={palette.red} size={20} strokeWidth={2} />}
+        </Pressable> : null}
       </View>
       {error ? <Text accessibilityRole="alert" style={styles.formMessage}>{error}</Text> : null}
       {loading ? <ActivityIndicator color={palette.red} /> : displayed.map(report => <View key={report.id} style={styles.communityCard}>
-        {verificationOnly ? <Pressable accessibilityRole="button" accessibilityLabel={`Open report by ${report.author_name} for review`}
-          onPress={() => setReviewReport(report)}>
-          <CommunityPhoto uri={report.photo_url} />
-          <Text style={styles.refreshText}>Open report</Text>
-        </Pressable> : <CommunityPhoto uri={report.photo_url} />}
-        <ReportIdentification report={report} />
-        <Text style={styles.emptyActivityTitle}>{report.author_name}</Text>
+        {report.photo_url ? <View style={styles.communityPhotoContainer}>
+          {verificationOnly ? <Pressable accessibilityRole="button" accessibilityLabel={`Review sighting by ${report.author_name}`}
+            onPress={() => setReviewReport(report)}>
+            <CommunityPhoto uri={report.photo_url} />
+          </Pressable> : <CommunityPhoto uri={report.photo_url} />}
+          <CommunityResultsButton report={report} review={verificationOnly}
+            onPress={() => verificationOnly ? setReviewReport(report) : setResultsReport(report)} />
+        </View> : <CommunityResultsButton report={report} review={verificationOnly}
+            onPress={() => verificationOnly ? setReviewReport(report) : setResultsReport(report)} />}
+        <CommunityAuthor report={report} />
         <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
         {report.caption ? <Text style={styles.communityCaption}>{report.caption}</Text> : null}
         {report.flagged_inaccurate ? <Text style={styles.flagBadge}>Flagged for inaccuracy</Text> : null}
@@ -1069,7 +1099,6 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
           <Text style={styles.sectionEyebrow}>THIS WEEK</Text>
           <Text style={styles.sectionTitle}>Leaderboard</Text>
         </View>
-        <Text style={styles.sectionIndex}>02 / 02</Text>
       </View>
       <Pressable accessibilityRole="button" accessibilityLabel="View leaderboard" onPress={onOpenLeaderboard} style={({ pressed }) => [styles.leaderboardLink, pressed && styles.pressed]}>
         <View style={styles.leaderboardLinkIcon}>
@@ -1083,6 +1112,7 @@ function CommunityScreen({ previewMode, reports, verificationReports, loading, e
       </Pressable>
       <Text style={styles.homeFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
     </ScrollView>
+    <IdentificationResultsModal report={resultsReport} onClose={() => setResultsReport(null)} />
     {reviewReport ? <CommunityReview key={reviewReport.id} report={reviewReport}
       onClose={() => { setReviewReport(null); void onRefresh(); }} onChanged={onRefresh} /> : null}
   </>);
@@ -1508,9 +1538,9 @@ const styles = StyleSheet.create({
   eyebrow: { color: palette.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.4 },
   authHero: { paddingTop: 48, paddingBottom: 28 },
   heroKicker: { color: palette.red, fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginBottom: 12 },
-  authTitle: { color: palette.ink, fontSize: 42, lineHeight: 47, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' },
+  authTitle: { color: palette.ink, fontSize: 42, lineHeight: 47 },
   authDescription: { color: '#565656', fontSize: 15, lineHeight: 23, marginTop: 14, maxWidth: 330 },
-  authPanel: { backgroundColor: palette.paper, padding: 18, borderWidth: 1, borderColor: palette.line },
+  authPanel: { borderRadius: 16, backgroundColor: palette.paper, padding: 18, borderWidth: 1, borderColor: palette.line },
   modeSwitch: { flexDirection: 'row', backgroundColor: '#F1F1F1', padding: 3, marginBottom: 22 },
   modeButton: { flex: 1, paddingVertical: 11, alignItems: 'center' },
   modeButtonActive: { backgroundColor: palette.black },
@@ -1535,19 +1565,19 @@ const styles = StyleSheet.create({
   authFooter: { color: '#93988F', textAlign: 'center', fontSize: 9, fontWeight: '700', letterSpacing: 1.5, marginTop: 24 },
   pageContent: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 34 },
   homeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 },
-  greeting: { color: palette.ink, fontSize: 26, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 5 },
+  greeting: { color: palette.ink, fontSize: 26, marginTop: 5 },
   avatarButton: { width: 42, height: 42, borderRadius: 21, overflow: 'hidden', backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.red },
   homeAvatarImage: { width: 40, height: 40 },
   avatarText: { color: palette.red, fontSize: 15, fontWeight: '800' },
-  previewBanner: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, backgroundColor: palette.paleRed, borderLeftWidth: 3, borderLeftColor: palette.red, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 14 },
+  previewBanner: { borderRadius: 8, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, backgroundColor: palette.paleRed, borderLeftWidth: 3, borderLeftColor: palette.red, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 14 },
   previewBannerText: { color: palette.red, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
   previewBannerDetail: { color: '#555555', fontSize: 10, flexShrink: 1 },
-  streakCard: { backgroundColor: palette.black, minHeight: 208, padding: 20, overflow: 'hidden', position: 'relative' },
+  streakCard: { borderRadius: 16, backgroundColor: palette.black, minHeight: 208, padding: 20, overflow: 'hidden', position: 'relative' },
   streakTopline: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   streakLabel: { color: '#E6E6E6', fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
   streakDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: palette.red },
   streakNumberRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 16 },
-  streakNumber: { color: palette.red, fontSize: 70, lineHeight: 78, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' },
+  streakNumber: { color: palette.red, fontSize: 70, lineHeight: 78 },
   streakDays: { color: palette.white, fontSize: 11, fontWeight: '800', letterSpacing: 1.8, marginLeft: 10 },
   streakDivider: { height: 1, backgroundColor: '#414141', marginTop: 7, marginBottom: 12 },
   streakBottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -1555,25 +1585,24 @@ const styles = StyleSheet.create({
   streakMark: { color: '#B8B8B8', fontSize: 10, fontWeight: '700' },
   streakDecor: { position: 'absolute', width: 120, height: 120, borderWidth: 1, borderColor: '#353535', borderRadius: 60, right: -48, top: 48, alignItems: 'center', justifyContent: 'center' },
   streakDecorRing: { width: 82, height: 82, borderWidth: 1, borderColor: '#353535', borderRadius: 41 },
-  statsRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderBottomWidth: 1, borderColor: palette.line, paddingVertical: 17, marginBottom: 27 },
+  statsRow: { borderRadius: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderBottomWidth: 1, borderColor: palette.line, paddingVertical: 17, marginBottom: 27 },
   statBlock: { flex: 1, paddingHorizontal: 13 },
   statLabel: { color: palette.muted, fontSize: 8, fontWeight: '800', letterSpacing: 1.1 },
-  statValue: { color: palette.ink, fontSize: 28, lineHeight: 34, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 5 },
+  statValue: { color: palette.ink, fontSize: 28, lineHeight: 34, marginTop: 5 },
   statFoot: { color: palette.muted, fontSize: 10 },
   statSeparator: { width: 1, height: 46, backgroundColor: palette.line },
   sectionHeadingRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 13 },
   sectionEyebrow: { color: palette.red, fontSize: 9, fontWeight: '800', letterSpacing: 1.3 },
-  sectionTitle: { color: palette.ink, fontSize: 21, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 4 },
-  sectionIndex: { color: '#888888', fontSize: 9, fontWeight: '700', marginBottom: 3 },
-  uploadButton: { minHeight: 86, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, flexDirection: 'row', alignItems: 'center' },
-  uploadIcon: { width: 54, height: 58, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.paleRed },
+  sectionTitle: { color: palette.ink, fontSize: 21, marginTop: 4 },
+  uploadButton: { borderRadius: 16, minHeight: 86, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, flexDirection: 'row', alignItems: 'center' },
+  uploadIcon: { borderRadius: 8, width: 54, height: 58, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.paleRed },
   uploadPlus: { color: palette.red, fontSize: 30, lineHeight: 34, fontWeight: '300' },
-  photoPreview: { width: 70, height: 58, backgroundColor: palette.line },
+  photoPreview: { borderRadius: 8, width: 70, height: 58, backgroundColor: palette.line },
   uploadCopy: { flex: 1, paddingHorizontal: 13 },
   uploadTitle: { color: palette.ink, fontSize: 14, fontWeight: '700' },
   uploadSubtitle: { color: palette.muted, fontSize: 10, marginTop: 5 },
   uploadArrow: { color: palette.red, fontSize: 17, fontWeight: '600', paddingHorizontal: 5 },
-  selectedPhotoNotice: { backgroundColor: '#F0F0F0', padding: 11, marginTop: 8 },
+  selectedPhotoNotice: { borderRadius: 8, backgroundColor: '#F0F0F0', padding: 11, marginTop: 8 },
   selectedPhotoTitle: { color: palette.red, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
   selectedPhotoCopy: { color: '#5D665D', fontSize: 11, lineHeight: 16, marginTop: 4 },
   reportUploadActions: { flexDirection: 'row', gap: 10 },
@@ -1584,30 +1613,45 @@ const styles = StyleSheet.create({
   privacyNote: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 29 },
   privacyGlyph: { width: 16, height: 16, textAlign: 'center', textAlignVertical: 'center', borderRadius: 8, overflow: 'hidden', backgroundColor: palette.paleRed, color: palette.red, fontSize: 10, fontWeight: '800' },
   privacyText: { color: palette.muted, fontSize: 10, flex: 1 },
-  emptyActivity: { backgroundColor: '#F0F0F0', minHeight: 112, padding: 15, justifyContent: 'center' },
+  emptyActivity: { borderRadius: 16, backgroundColor: '#F0F0F0', minHeight: 112, padding: 15, justifyContent: 'center' },
   emptyActivityLine: { width: 22, height: 2, backgroundColor: palette.red, marginBottom: 11 },
   emptyActivityTitle: { color: palette.ink, fontSize: 14, fontWeight: '700' },
   emptyActivityCopy: { color: palette.muted, fontSize: 11, marginTop: 4 },
   refreshButton: { alignSelf: 'flex-start', marginBottom: 12, paddingVertical: 6 },
   refreshText: { color: palette.red, fontSize: 11, fontWeight: '700' },
   reportRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: palette.paper, borderBottomWidth: 1, borderBottomColor: palette.line, padding: 10 },
-  reportPhoto: { width: 64, height: 56, backgroundColor: palette.line },
-  reportCard: { backgroundColor: palette.paper, marginBottom: 8 },
+  reportPhoto: { borderRadius: 8, width: 64, height: 56, backgroundColor: palette.line },
+  reportCard: { borderRadius: 16, overflow: 'hidden', backgroundColor: palette.paper, marginBottom: 8 },
   reportCopy: { flex: 1 },
   reportAside: { alignItems: 'flex-end', justifyContent: 'center', gap: 8, minWidth: 32 },
   reportScore: { color: palette.ink, fontSize: 18, fontWeight: '800' },
   editPanel: { padding: 12 },
-  reportFields: { padding: 12, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, marginVertical: 10 },
+  reportFields: { borderRadius: 16, padding: 12, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, marginVertical: 10 },
   reportInputLabel: { color: palette.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.7, marginTop: 10, marginBottom: 6 },
   reportInput: { borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, color: palette.ink, paddingHorizontal: 10, minHeight: 42, fontSize: 14 },
   captionInput: { minHeight: 72, paddingTop: 10, textAlignVertical: 'top' },
   homeFooter: { color: '#93988F', fontSize: 8, fontWeight: '700', letterSpacing: 1.1, textAlign: 'center', marginTop: 25 },
+  feedToolbar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
+  feedFilters: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  feedFilterButton: { minHeight: 44, maxWidth: '100%', borderRadius: 10, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.paper, paddingHorizontal: 12, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
+  feedFilterSelected: { backgroundColor: palette.red, borderColor: palette.red },
+  feedFilterText: { color: palette.ink, fontSize: 12, fontWeight: '700', textAlign: 'center' },
+  feedFilterTextSelected: { color: palette.white },
+  feedReloadButton: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.paper, alignItems: 'center', justifyContent: 'center' },
   communityHeader: { paddingTop: 8, paddingBottom: 27 },
-  communityTitle: { color: palette.ink, fontSize: 32, lineHeight: 38, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 13 },
   communityDescription: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 9, maxWidth: 320 },
-  communityEmpty: { minHeight: 146, padding: 18, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
-  communityCard: { backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, marginBottom: 12 },
-  communityPhoto: { width: '100%', height: 220, backgroundColor: palette.line, marginBottom: 10 },
+  communityEmpty: { borderRadius: 16, minHeight: 146, padding: 18, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
+  communityCard: { borderRadius: 16, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, marginBottom: 12 },
+  communityPhoto: { borderRadius: 8, width: '100%', height: 220, backgroundColor: palette.line },
+  communityAuthor: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  communityAuthorAvatar: { width: 32, height: 32, borderRadius: 16, overflow: 'hidden', backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center' },
+  communityAuthorPhoto: { width: 32, height: 32, resizeMode: 'cover' },
+  communityAuthorName: { flex: 1 },
+  communityPhotoContainer: { position: 'relative', marginBottom: 10 },
+  communityResultsButton: { minHeight: 44, minWidth: 44, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: palette.white, borderRadius: 10, borderWidth: 1, borderColor: palette.line },
+  communityResultsOverlay: { position: 'absolute', top: 8, right: 8, maxWidth: '90%' },
+  communityResultsFallback: { alignSelf: 'flex-end', marginBottom: 10 },
+  communityResultsText: { color: palette.ink, fontSize: 12, fontWeight: '700', flexShrink: 1 },
   communityCaption: { color: palette.ink, fontSize: 13, marginTop: 8 },
   flagBadge: { color: palette.red, fontSize: 11, fontWeight: '800', marginTop: 8 },
   actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginTop: 10 },
@@ -1621,42 +1665,42 @@ const styles = StyleSheet.create({
   communityEmptyMark: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginBottom: 11 },
   communityEmptyGlyph: { color: palette.red, fontSize: 24, lineHeight: 28, fontWeight: '300' },
   communitySectionGap: { marginTop: 29 },
-  leaderboardLink: { minHeight: 78, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, paddingHorizontal: 12 },
+  leaderboardLink: { borderRadius: 16, minHeight: 78, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, paddingHorizontal: 12 },
   leaderboardLinkIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginRight: 11 },
   communityLeaderboardIcon: { width: 30, height: 30 },
   leaderboardCopy: { flex: 1 },
   leaderboardTitle: { color: palette.ink, fontSize: 12, fontWeight: '700' },
   leaderboardArrow: { color: palette.red, fontSize: 24, paddingLeft: 8 },
   leaderboardHeader: { paddingTop: 8, paddingBottom: 23 },
-  leaderboardPageTitle: { color: palette.ink, fontSize: 34, lineHeight: 40, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 13 },
-  leaderboardPanel: { backgroundColor: '#AAB07A', padding: 14, marginBottom: 28 },
-  leaderboardFilters: { flexDirection: 'row', padding: 3, backgroundColor: 'rgba(255,255,255,0.55)', marginBottom: 20 },
-  leaderboardFilter: { flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  leaderboardPageTitle: { color: palette.ink, fontSize: 34, lineHeight: 40, marginTop: 13 },
+  leaderboardPanel: { borderRadius: 16, backgroundColor: '#AAB07A', padding: 14, marginBottom: 28 },
+  leaderboardFilters: { borderRadius: 8, flexDirection: 'row', padding: 3, backgroundColor: 'rgba(255,255,255,0.55)', marginBottom: 20 },
+  leaderboardFilter: { borderRadius: 8, flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   leaderboardFilterSelected: { backgroundColor: palette.black },
   leaderboardFilterIcon: { width: 25, height: 25 },
   leaderboardFilterText: { color: palette.muted, fontSize: 12, fontWeight: '700' },
   leaderboardFilterTextSelected: { color: palette.white },
   leaderboardPeriodHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 },
   leaderboardPeriodIcon: { width: 42, height: 42 },
-  leaderboardRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderBottomWidth: 1, borderBottomColor: palette.line, paddingHorizontal: 11, gap: 9 },
-  leaderboardRank: { width: 23, color: palette.red, fontSize: 17, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' },
+  leaderboardRow: { borderRadius: 8, minHeight: 76, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderBottomWidth: 1, borderBottomColor: palette.line, paddingHorizontal: 11, gap: 9 },
+  leaderboardRank: { width: 23, color: palette.red, fontSize: 17 },
   leaderboardAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F0F0F0', alignItems: 'center', justifyContent: 'center' },
   leaderboardAvatarText: { color: palette.ink, fontSize: 12, fontWeight: '800' },
   leaderboardDetails: { flex: 1, minWidth: 0 },
   leaderboardName: { color: palette.ink, fontSize: 13, fontWeight: '700' },
-  winnerBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, backgroundColor: '#AAB07A', paddingHorizontal: 6, paddingVertical: 3, marginTop: 5 },
+  winnerBadge: { borderRadius: 8, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, backgroundColor: '#AAB07A', paddingHorizontal: 6, paddingVertical: 3, marginTop: 5 },
   badgeIconSlot: { borderWidth: 1, borderColor: '#858B5A', borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.2)' },
   winnerBadgeText: { color: palette.ink, fontSize: 7, fontWeight: '900', letterSpacing: 0.4 },
   leaderboardCount: { minWidth: 42, alignItems: 'flex-end' },
   leaderboardCountValue: { color: palette.ink, fontSize: 20, fontWeight: '800' },
   leaderboardCountLabel: { color: palette.muted, fontSize: 7, fontWeight: '800', letterSpacing: 0.7, marginTop: 1 },
-  leaderboardEmptyState: { minHeight: 210, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 22 },
+  leaderboardEmptyState: { borderRadius: 16, minHeight: 210, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 22 },
   leaderboardEmptyIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   leaderboardEmptyTitle: { color: palette.ink, fontSize: 15, fontWeight: '700', textAlign: 'center' },
   leaderboardEmptyCopy: { color: palette.muted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 6 },
   leaderboardEmptyNote: { color: palette.muted, fontSize: 10, lineHeight: 15, textAlign: 'center', marginTop: 12 },
   profileHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 22 },
-  profileTitle: { color: palette.ink, fontSize: 34, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginBottom: 22 },
+  profileTitle: { color: palette.ink, fontSize: 34, marginBottom: 22 },
   profileIdentity: { alignItems: 'center', gap: 12, paddingVertical: 24, borderTopWidth: 1, borderBottomWidth: 1, borderColor: palette.line, marginBottom: 28 },
   profileAvatar: { width: 100, height: 100, borderRadius: 50, overflow: 'hidden', backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
   profileAvatarImage: { width: 100, height: 100 },
@@ -1678,20 +1722,20 @@ const styles = StyleSheet.create({
   nameCancelButton: { minHeight: 38, minWidth: 68, alignItems: 'center', justifyContent: 'center' },
   nameCancelText: { color: palette.muted, fontSize: 12, fontWeight: '700' },
   nameSaveText: { color: palette.white, fontSize: 12, fontWeight: '700' },
-  profileStats: { backgroundColor: palette.paper, marginTop: 11, paddingHorizontal: 14 },
+  profileStats: { borderRadius: 16, backgroundColor: palette.paper, marginTop: 11, paddingHorizontal: 14 },
   profileStatRow: { minHeight: 50, borderBottomWidth: 1, borderColor: palette.line, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   profileStatLabel: { color: palette.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   profileStatValue: { color: palette.ink, fontSize: 14, fontWeight: '700' },
   badgesEyebrow: { marginTop: 28 },
-  badgeRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, padding: 13, marginTop: 11, borderWidth: 1, borderColor: palette.line },
-  badgePreviewRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: palette.paper, paddingHorizontal: 11, paddingVertical: 8, marginTop: 8, borderWidth: 1, borderColor: palette.line },
+  badgeRow: { borderRadius: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, padding: 13, marginTop: 11, borderWidth: 1, borderColor: palette.line },
+  badgePreviewRow: { borderRadius: 16, minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: palette.paper, paddingHorizontal: 11, paddingVertical: 8, marginTop: 8, borderWidth: 1, borderColor: palette.line },
   badgeSeal: { width: 39, height: 39, borderRadius: 20, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center' },
   badgeSealText: { color: palette.red, fontSize: 10, fontWeight: '800' },
   badgeCopy: { flex: 1, paddingHorizontal: 11 },
   badgeTitle: { color: palette.ink, fontSize: 13, fontWeight: '700' },
   badgeDescription: { color: palette.muted, fontSize: 10, marginTop: 4 },
   badgeLocked: { color: '#A1A59B', fontSize: 8, fontWeight: '800', letterSpacing: 0.8 },
-  accountNote: { marginTop: 23, padding: 14, backgroundColor: '#F0F0F0' },
+  accountNote: { borderRadius: 16, marginTop: 23, padding: 14, backgroundColor: '#F0F0F0' },
   accountNoteTitle: { color: palette.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.1 },
   accountNoteText: { color: '#555555', fontSize: 11, lineHeight: 17, marginTop: 6 },
   signOutButton: { minHeight: 48, borderWidth: 1, borderColor: palette.red, alignItems: 'center', justifyContent: 'center', marginTop: 22 },

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../lib/typography';
 import type { Report } from '../lib/reports';
 import { loadReportReview, releaseReportReview, saveInsectReview } from '../lib/reviews';
 import { reviewActionMessage, reviewFinished } from '../lib/community-review';
@@ -111,12 +112,12 @@ export function CommunityReview({ report, onClose, onChanged }: {
 }
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  dialog: { width: '100%', maxWidth: 620, maxHeight: '90%', backgroundColor: '#FFF', borderRadius: 12, flexShrink: 1, overflow: 'hidden' },
+  dialog: { width: '100%', maxWidth: 620, maxHeight: '90%', backgroundColor: '#FFF', borderRadius: 16, flexShrink: 1, overflow: 'hidden' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderColor: '#DDD' },
   title: { fontSize: 24, fontWeight: '700', color: '#111' }, heading: { fontSize: 15, fontWeight: '700', color: '#111' },
   content: { padding: 16, gap: 14 }, note: { color: '#626262', fontSize: 13, lineHeight: 20 },
   insect: { gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderColor: '#DDD' }, row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  button: { minHeight: 44, padding: 12, borderWidth: 1, borderColor: '#CCC', borderRadius: 5, justifyContent: 'center' },
+  button: { borderRadius: 8, minHeight: 44, padding: 12, borderWidth: 1, borderColor: '#CCC', justifyContent: 'center' },
   selected: { borderColor: '#F72D33', backgroundColor: '#FFF0F0' }, error: { color: '#B00020', fontSize: 13, lineHeight: 20 },
   box: { position: 'absolute', borderWidth: 2, borderColor: '#F72D33' }, number: { alignSelf: 'flex-start', color: '#FFF', backgroundColor: '#111', paddingHorizontal: 4, fontSize: 13 },
 });

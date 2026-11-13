@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import { Image, PanResponder, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, PanResponder, Pressable, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../lib/typography';
 import type { AdminInsect } from '../lib/moderation';
 import { dragBox, imagePoint, validBox } from '../lib/moderation-geometry';
 import type { Box, Point } from '../lib/moderation-geometry';
@@ -74,7 +75,7 @@ export function ModerationBoxEditor({ photo, width, height, insects, selected, i
 }
 const styles = StyleSheet.create({
   editor: { gap: 12, paddingVertical: 12 }, heading: { fontSize: 17, fontWeight: '700' }, note: { color: '#666', fontSize: 12, lineHeight: 18 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, button: { minHeight: 44, padding: 10, borderWidth: 1, borderColor: '#CCC', justifyContent: 'center' },
-  selected: { backgroundColor: '#FFF0F0', borderColor: '#F72D33' }, field: { minWidth: 60, flex: 1 }, input: { minHeight: 44, borderWidth: 1, borderColor: '#CCC', padding: 8 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, button: { borderRadius: 8, minHeight: 44, padding: 10, borderWidth: 1, borderColor: '#CCC', justifyContent: 'center' },
+  selected: { backgroundColor: '#FFF0F0', borderColor: '#F72D33' }, field: { minWidth: 60, flex: 1 }, input: { borderRadius: 8, minHeight: 44, borderWidth: 1, borderColor: '#CCC', padding: 8 },
   box: { position: 'absolute', borderWidth: 2, borderColor: '#F72D33' },
 });

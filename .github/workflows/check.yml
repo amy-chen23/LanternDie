@@ -65,3 +65,6 @@ jobs:
       - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/admin-attention-access.sql
         env:
           PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/community-profile-photos-access.sql
+        env:
+          PGPASSWORD: postgres

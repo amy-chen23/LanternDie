@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../lib/typography';
 import type { Report } from '../lib/reports';
 import { assessReportLocally, setVerificationVote } from '../lib/death-assessment';
 import type { VerificationLabel } from '../lib/death-assessment';
@@ -75,6 +76,6 @@ export function VerificationVoting({ report, userId, onChanged }: { report: Repo
 const styles = StyleSheet.create({
   section: { gap: 8, paddingVertical: 10 }, title: { fontSize: 13, fontWeight: '700', color: '#111111' },
   note: { fontSize: 12, lineHeight: 18, color: '#696969' }, row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  button: { minHeight: 44, padding: 10, justifyContent: 'center', borderWidth: 1, borderColor: '#D0D0D0', borderRadius: 4 },
+  button: { borderRadius: 8, minHeight: 44, padding: 10, justifyContent: 'center', borderWidth: 1, borderColor: '#D0D0D0' },
   selected: { borderColor: '#F72D33', backgroundColor: '#FFF0F0' }, error: { fontSize: 12, color: '#B00020' },
 });
