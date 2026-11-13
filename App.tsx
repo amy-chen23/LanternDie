@@ -21,7 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
-import { Check, ChevronDown, CircleHelp, Ellipsis, Flag, House, ListFilter, Pencil, Search, RotateCw, Shield, Trash2, Trophy, UserRound, UsersRound } from 'lucide-react-native';
+import { Check, ChevronDown, CircleHelp, Ellipsis, Flag, House, ListFilter, Pencil, Search, RotateCw, Shield, Trash2, Trophy, UserRound } from 'lucide-react-native';
 import { deleteOwnedReport } from './lib/report-deletion';
 import { loadReports, loadPublicReports, loadVerificationReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
 import { matchesSubmissionFilter, submissionStatusLabel, type SubmissionFilter } from './lib/submission-filters';
@@ -1408,7 +1408,7 @@ function BottomNavigation({
 }) {
   const tabs = [
     { screen: 'home' as const, label: 'Home', Icon: House },
-    { screen: 'community' as const, label: 'Sightings', Icon: UsersRound },
+    { screen: 'community' as const, label: 'Sightings', Icon: Search },
     { screen: 'leaderboard' as const, label: 'Leaderboard', Icon: Trophy },
     { screen: 'profile' as const, label: 'My Profile', Icon: UserRound },
     ...(isAdmin ? [{ screen: 'admin' as const, label: 'Admin', Icon: Shield }] : []),
