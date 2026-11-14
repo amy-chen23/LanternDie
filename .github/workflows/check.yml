@@ -9,7 +9,8 @@ on:
 
 jobs:
   app:
-    runs-on: ubuntu-latest
+    # Playwright 1.56 supports Ubuntu 24.04; ubuntu-latest can advance past it.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
