@@ -16,18 +16,19 @@ See [beta release details](docs/HUMAN_VERIFIED_BETA.md) and the
 ## Public repository mirror
 
 The [mirror workflow](.github/workflows/mirror-public.yml) copies commits from
-this repository's `main` branch to the public `main` branch in
+all branches in this repository to branches with the same names in
 [`amy-chen23/LanternDie`](https://github.com/amy-chen23/LanternDie). It runs on
-pushes to `main`, can be started manually from Actions, and retries daily.
-It leaves other branches and tags alone. Direct changes to public `main` may
-be overwritten by the next mirror run.
+pushes to any branch, can be started manually from Actions, and retries daily.
+Each run syncs all current branches, including force-pushes and branch deletions,
+and leaves tags alone. Direct changes to public branches may be overwritten;
+public branches absent from this source repository are deleted.
 
 To enable it, create a fine-grained personal access token scoped to the public
 repository with **Contents: Read and write** and **Workflows: Read and write**
 permissions. Save it as an Actions repository secret named `PUBLIC_REPO_TOKEN`
 in this source repository. Then run **Mirror to public repository** from its
-Actions tab once to seed public `main`. Keep credentials and private data out
-of the source `main` history before enabling the mirror.
+Actions tab once to seed all public branches. Keep credentials and private data
+out of every source branch's history before enabling the mirror.
 
 ## Run locally
 
