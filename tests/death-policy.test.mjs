@@ -41,3 +41,11 @@ test('bundled model, policy, and server registry use the same checksum', () => {
   const migration = readFileSync(new URL('../supabase/migrations/20261107000000_death_assessments.sql', import.meta.url), 'utf8');
   assert.ok(migration.includes(checksum));
 });
+
+test('existing threshold is inclusive and no score bypasses the human-review gate', () => {
+  const policy = JSON.parse(readFileSync(new URL('../assets/models/policy.json', import.meta.url)));
+  for (const [score, accepted] of [[policy.threshold - Number.EPSILON, false], [policy.threshold, true], [policy.threshold + Number.EPSILON, true]]) {
+    assert.equal(proposedRoute([score], policy.threshold, true), accepted ? 'likely_dead' : 'community_verification');
+    assert.equal(proposedRoute([score], policy.threshold, policy.automaticVerificationEnabled), 'community_verification');
+  }
+});

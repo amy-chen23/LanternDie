@@ -55,7 +55,6 @@ export function AdminAccess({ userId, checkAccess, onModerated }: { userId: stri
       <Text style={styles.heading}>{report.author_name}</Text>
       <Text style={styles.note}>{all || filterId ? report.workflow_status.replaceAll('_', ' ') : report.workflow_status === 'admin_review' ? 'Needs admin review' : 'Alive/dead decision needed'}</Text>
       <Text style={styles.note}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
-      {report.caption ? <Text style={styles.note}>{report.caption}</Text> : null}
       <ReportIdentification report={report} />
       <Pressable accessibilityRole="button" style={styles.button} onPress={() => setSelected(report)}><Text>Moderate report</Text></Pressable>
     </View>) : <Text style={styles.note}>No matching reports.</Text>}

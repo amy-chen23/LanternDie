@@ -13,3 +13,6 @@ __pycache__/
 *.pyc
 ios/
 android/
+public/inference/
+playwright-report/
+test-results/

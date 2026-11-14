@@ -20,6 +20,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build:web
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
