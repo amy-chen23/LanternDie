@@ -103,10 +103,12 @@ export async function loadReports(userId: string, previous: Report[] = []): Prom
   return decorateReports(data ?? [], userId, previous);
 }
 
-export async function loadPublicReports(viewerId: string): Promise<Report[]> {
+export async function loadPublicReports(viewerId: string, authorId?: string): Promise<Report[]> {
   if (!supabase) throw new Error('Supabase is not configured.');
-  const { data, error } = await supabase.from('reports').select(fields)
-    .eq('visibility', 'public').in('workflow_status', [...communityFeedStatuses]).order('created_at', { ascending: false }).limit(25);
+  let query = supabase.from('reports').select(fields)
+    .eq('visibility', 'public').in('workflow_status', [...communityFeedStatuses]);
+  if (authorId) query = query.eq('user_id', authorId);
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(25);
   if (error) throw error;
   return decorateReports(data ?? [], viewerId);
 }

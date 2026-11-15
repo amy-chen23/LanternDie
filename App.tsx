@@ -46,6 +46,7 @@ import { CommunityReview } from './components/CommunityReview';
 import { InlineCommunityReview } from './components/InlineCommunityReview';
 import { loadReviewableReportIds } from './lib/reviews';
 import { PageHeader } from './components/PageHeader';
+import { MemberProfile } from './components/MemberProfile';
 import { AdminAccess } from './components/AdminAccess';
 import { CommunityApproval } from './components/CommunityApproval';
 import { communityApproval, confirmedInsectCounts } from './lib/community-feed';
@@ -126,6 +127,9 @@ export default function App() {
   const [previewMode, setPreviewMode] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [screen, setScreen] = useState<Screen>('home');
+  const [memberProfile, setMemberProfile] = useState<Report | null>(null);
+
+  useEffect(() => { setMemberProfile(null); }, [session?.user.id, screen]);
   const activeScreen = useRef<Screen>(screen);
   activeScreen.current = screen;
   const [sightingsView, setSightingsView] = useState<SightingsView>('explore');
@@ -555,6 +559,9 @@ export default function App() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
       <PublicationCelebration celebration={publication.celebration} onClose={publication.dismiss} />
+      {memberProfile && session && screen === 'community' ? <MemberProfile
+        key={`${session.user.id}:${memberProfile.user_id}`} author={memberProfile} viewerId={session.user.id}
+        onClose={() => setMemberProfile(null)} /> : null}
       <View style={styles.appLayout}>
         <View style={styles.screenContainer}>
           {screen === 'home' ? (
@@ -567,6 +574,10 @@ export default function App() {
             />
           ) : screen === 'community' ? (
             <CommunityScreen key={session?.user.id ?? 'preview'} previewMode={previewMode} reports={visiblePublicReports}
+              onOpenProfile={report => {
+                if (report.user_id === session?.user.id) setScreen('profile');
+                else setMemberProfile(report);
+              }}
               myReports={visibleReports} exploreReviewIds={exploreReviewIds} view={sightingsView} onChangeView={setSightingsView}
               submissionFilter={submissionFilter} onChangeSubmissionFilter={setSubmissionFilter}
               verificationReports={publicReportsViewerId === session?.user.id ? verificationReports : []}
@@ -989,17 +1000,18 @@ const CommunityPhoto = memo(function CommunityPhoto({ uri }: { uri: string | nul
   return uri ? <Image source={{ uri }} style={styles.communityPhoto} /> : <View style={styles.communityPhoto} />;
 });
 
-function CommunityAuthor({ report }: { report: Report }) {
+function CommunityAuthor({ report, onPress }: { report: Report; onPress?: () => void }) {
   const [failedUri, setFailedUri] = useState<string | null>(null);
   const photoUri = report.author_photo_url;
-  return <View style={styles.communityAuthor}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={`View ${report.author_name}'s profile`}
+    disabled={!onPress} onPress={onPress} style={({ pressed }) => [styles.communityAuthor, pressed && styles.pressed]}>
     <View style={styles.communityAuthorAvatar}>
       {photoUri && photoUri !== failedUri ? <Image source={{ uri: photoUri }} style={styles.communityAuthorPhoto}
         accessibilityLabel={`${report.author_name}'s profile photo`} onError={() => setFailedUri(photoUri)} />
         : <Text style={styles.avatarText}>{report.author_name.trim().slice(0, 1).toUpperCase() || '?'}</Text>}
     </View>
     <Text style={[styles.emptyActivityTitle, styles.communityAuthorName]}>{report.author_name}</Text>
-  </View>;
+  </Pressable>;
 }
 
 function CommunityResultsButton({ report, review = false, onPress }: { report: Report; review?: boolean; onPress: () => void }) {
@@ -1049,7 +1061,7 @@ const submissionGuidance: Record<SubmissionFilter, { title: string; descriptions
 
 function CommunityScreen({ previewMode, reports, myReports, verificationReports, exploreReviewIds, view, onChangeView,
   submissionFilter, onChangeSubmissionFilter, loading, error, actionError, busyId, userId, onRefresh,
-  onVote, editingReportId, editingDetails, onChangeEditingDetails,
+  onVote, onOpenProfile, editingReportId, editingDetails, onChangeEditingDetails,
   savingReport, deletingReportId, onDeleteReport, onEditReport, onSaveEditedReport, onCancelEdit, onIdentificationChanged,
 }: {
   previewMode: boolean; reports: Report[]; myReports: Report[]; verificationReports: Report[]; exploreReviewIds: string[];
@@ -1057,6 +1069,7 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
   submissionFilter: SubmissionFilter; onChangeSubmissionFilter: (filter: SubmissionFilter) => void;
   loading: boolean; error: string; actionError: string; busyId: string | null; userId: string | null;
   onRefresh: (quiet?: boolean) => Promise<void>; onVote: (report: Report, value: -1 | 1) => void;
+  onOpenProfile: (report: Report) => void;
   editingReportId: string | null; editingDetails: ReportDetails;
   onChangeEditingDetails: (details: ReportDetails) => void; savingReport: boolean; deletingReportId: string | null;
   onDeleteReport: (report: Report) => Promise<void>; onEditReport: (report: Report) => void;
@@ -1172,7 +1185,7 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
       {error ? <Text accessibilityRole="alert" style={styles.formMessage}>{error}</Text> : null}
       {loading ? <ActivityIndicator color={palette.red} /> : displayed.map(report => <View key={report.id} style={styles.communityCard}>
         <View style={styles.sightingAuthorRow}>
-          <View style={styles.reportCopy}><CommunityAuthor report={report} /></View>
+          <View style={styles.reportCopy}><CommunityAuthor report={report} onPress={() => onOpenProfile(report)} /></View>
           {!previewMode && report.user_id === userId ? <Pressable accessibilityRole="button" accessibilityLabel="Submission options"
             accessibilityState={{ expanded: menuReportId === report.id, disabled: reportBusy }} disabled={reportBusy}
             onPress={() => { setMenuReportId(current => current === report.id ? null : report.id); setConfirmDeleteId(null); }}
