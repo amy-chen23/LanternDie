@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { communityApproval, communityFeedStatuses, communityTone } from '../lib/community-feed.ts';
+import { communityApproval, communityFeedStatuses, confirmedInsectCounts } from '../lib/community-feed.ts';
 
 test('feed includes uploads before detection, review, and approval while excluding rejected posts', () => {
   assert.deepEqual(communityFeedStatuses,['pending_detection','pending_review','admin_review','published']);
@@ -17,13 +17,15 @@ test('only finalized reports display approved; corrections restore the pending i
   assert.equal(communityApproval({...approved,insects_ready:false}),'pending');
 });
 
-test('card colors reflect confirmed insects while rejection always wins', () => {
-  const report = {workflow_status:'published',insects:[{label:'dead'}]};
-  assert.equal(communityTone(report),'dead');
-  assert.equal(communityTone({...report,insects:[{label:'alive'}]}),'neutral');
-  assert.equal(communityTone({...report,insects:[{label:'pending'}],death_assessment:{scores:[1]}}),'neutral');
-  assert.equal(communityTone({...report,insects:[]}),'neutral');
-  assert.equal(communityTone({...report,insects:[{label:'alive'},{label:'dead'},{label:'pending'}]}),'dead');
-  assert.equal(communityTone({...report,workflow_status:'rejected'}),'rejected');
-  assert.equal(communityApproval({...report,workflow_status:'rejected',insects_ready:true}),'rejected');
+test('confirmed result tags count alive and dead insects only after approval', () => {
+  const report = {workflow_status:'published',insects_ready:true,insects:[{label:'dead'}]};
+  assert.deepEqual(confirmedInsectCounts(report), {alive:0,dead:1});
+  assert.deepEqual(confirmedInsectCounts({...report,insects:[{label:'alive'}]}), {alive:1,dead:0});
+  assert.deepEqual(confirmedInsectCounts({...report,insects:[{label:'alive'},{label:'dead'},{label:'alive'}]}), {alive:2,dead:1});
+  for (const workflow_status of ['pending_review','pending_detection','admin_review','rejected']) {
+    assert.equal(confirmedInsectCounts({...report,workflow_status}), null);
+  }
+  assert.equal(confirmedInsectCounts({...report,insects:[{label:'dead'},{label:'pending'}]}), null);
+  assert.equal(confirmedInsectCounts({...report,insects:[]}), null);
+  assert.equal(confirmedInsectCounts({...report,insects_ready:false}), null);
 });

@@ -1,5 +1,13 @@
 import { supabase } from './supabase';
 import type { ReviewInsect, ReviewLabel } from './community-review';
+import type { InsectVoteSummary } from './community-votes';
+
+export async function loadReportVoteSummary(reportId: string): Promise<InsectVoteSummary[]> {
+  if (!supabase) throw new Error('Sign in to view community votes.');
+  const { data, error } = await supabase.rpc('get_report_vote_summary', { p_report_id: reportId });
+  if (error || !Array.isArray(data)) throw new Error('Community votes could not load. Please retry.');
+  return data as InsectVoteSummary[];
+}
 
 export async function loadReportReview(reportId: string, claim = false): Promise<ReviewInsect[]> {
   if (!supabase) throw new Error('Sign in to review reports.');

@@ -48,7 +48,8 @@ import { loadReviewableReportIds } from './lib/reviews';
 import { PageHeader } from './components/PageHeader';
 import { AdminAccess } from './components/AdminAccess';
 import { CommunityApproval } from './components/CommunityApproval';
-import { communityApproval, communityTone } from './lib/community-feed';
+import { communityApproval, confirmedInsectCounts } from './lib/community-feed';
+import { CommunityVotes } from './components/CommunityVotes';
 import { reportClassificationSummary } from './lib/classification-label';
 import { PublicationCelebration } from './components/PublicationCelebration';
 import { usePublicationCelebration } from './hooks/usePublicationCelebration';
@@ -1073,6 +1074,11 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
     }, 30_000);
     return () => clearInterval(timer);
   }, [previewMode]);
+  const [voteResultsVersion, setVoteResultsVersion] = useState(0);
+  async function refreshReviewResults(quiet = false) {
+    setVoteResultsVersion(value => value + 1);
+    await onRefresh(quiet);
+  }
   const [reviewReport, setReviewReport] = useState<Report | null>(null);
   const [resultsReport, setResultsReport] = useState<Report | null>(null);
   const [menuReportId, setMenuReportId] = useState<string | null>(null);
@@ -1164,7 +1170,7 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
         onPress={() => setStatusMenuOpen(false)} style={styles.statusFilterBackdrop} /> : null}
       {actionError ? <Text accessibilityRole="alert" style={styles.formMessage}>{actionError}</Text> : null}
       {error ? <Text accessibilityRole="alert" style={styles.formMessage}>{error}</Text> : null}
-      {loading ? <ActivityIndicator color={palette.red} /> : displayed.map(report => <View key={report.id} style={[styles.communityCard, communityTone(report) === 'rejected' ? styles.communityRejectedCard : communityTone(report) === 'dead' ? styles.communityDeadCard : styles.communityYellowCard]}>
+      {loading ? <ActivityIndicator color={palette.red} /> : displayed.map(report => <View key={report.id} style={styles.communityCard}>
         <View style={styles.sightingAuthorRow}>
           <View style={styles.reportCopy}><CommunityAuthor report={report} /></View>
           {!previewMode && report.user_id === userId ? <Pressable accessibilityRole="button" accessibilityLabel="Submission options"
@@ -1181,7 +1187,7 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
             onPress={() => verificationOnly ? setReviewReport(report) : setResultsReport(report)} />
         </View> : <CommunityResultsButton report={report} review={verificationOnly}
             onPress={() => verificationOnly ? setReviewReport(report) : setResultsReport(report)} />}
-        <CommunityApproval status={communityApproval(report)} tone={communityTone(report)} />
+        <CommunityApproval status={communityApproval(report)} counts={confirmedInsectCounts(report)} />
         {report.insects.length || report.identification?.status === 'detected' || report.identification?.status === 'not_detected' ? <Text style={styles.emptyActivityTitle}>{reportClassificationSummary(report)}</Text> : null}
         {report.caption ? <Text style={styles.communityCaption}>{report.caption}</Text> : null}
         <Text style={styles.sightingStatus}>{submissionStatusLabel(report.workflow_status)}</Text>
@@ -1223,7 +1229,9 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
 
         {!previewMode && view === 'explore' && userId && report.user_id !== userId ? <InlineCommunityReview
           report={report} viewerId={userId} eligible={exploreReviewIds.includes(report.id)}
-          onChanged={() => onRefresh(true)} onOpenPhoto={() => setReviewReport(report)} /> : null}
+          onChanged={() => refreshReviewResults(true)} onOpenPhoto={() => setReviewReport(report)} /> : null}
+        {!previewMode && userId && report.workflow_status !== 'rejected' && report.insects_ready && report.insects.length > 0 ? <CommunityVotes
+          key={`${userId}:${report.id}`} report={report} viewerId={userId} refreshVersion={voteResultsVersion} /> : null}
         {report.workflow_status === 'published' ? <View style={styles.actionRow}>
           <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
             disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
@@ -1265,7 +1273,7 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
       </View>
     </Modal> : null}
     {reviewReport ? <CommunityReview key={reviewReport.id} report={reviewReport}
-      onClose={() => { setReviewReport(null); void onRefresh(); }} onChanged={onRefresh} /> : null}
+      onClose={() => { setReviewReport(null); void refreshReviewResults(); }} onChanged={refreshReviewResults} /> : null}
   </>);
 }
 
@@ -1796,9 +1804,6 @@ const styles = StyleSheet.create({
   feedReloadButton: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.paper, alignItems: 'center', justifyContent: 'center' },
   rankingsDescription: { marginTop: 0, marginBottom: 23 },
   communityDescription: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 9, maxWidth: 320 },
-  communityDeadCard: { backgroundColor: '#F1F8F3', borderColor: '#C5DDCD' },
-  communityYellowCard: { backgroundColor: '#FFFBEF', borderColor: '#E9DCAD' },
-  communityRejectedCard: { backgroundColor: '#FFF0F1', borderColor: '#EDC3C7' },
   communityEmpty: { borderRadius: 16, minHeight: 146, padding: 18, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
   communityCard: { borderRadius: 16, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, marginBottom: 12 },
   communityPhoto: { borderRadius: 8, width: '100%', height: 220, backgroundColor: palette.line },

@@ -63,9 +63,9 @@ test('main Sightings UI preserves filters, owner actions, avatars and results al
   await expect(page.getByText('1 DEAD lanternfly detected', { exact: true })).toBeVisible();
   await expect(page.getByText('Merged caption', { exact: true })).toBeVisible();
   await expect(page.getByText('Approved', { exact: true })).toHaveCount(2);
-  await expect(page.getByText('Merged caption', { exact: true }).locator('..')).toHaveCSS('background-color', 'rgb(241, 248, 243)');
-  await expect(page.getByText('Alive-only fixture', { exact: true }).locator('..')).toHaveCSS('background-color', 'rgb(255, 251, 239)');
-  await expect(page.getByText('Rejected fixture', { exact: true }).locator('..')).toHaveCSS('background-color', 'rgb(255, 240, 241)');
+  await expect(page.getByText('Merged caption', { exact: true }).locator('..')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.getByText('Alive-only fixture', { exact: true }).locator('..')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.getByText('Rejected fixture', { exact: true }).locator('..')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.getByRole('img', { name: "Merge QA's profile photo" }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Upvote report', exact: true }).first()).toBeEnabled();
   await page.getByRole('button', { name: 'View identification results for sighting by Merge QA: Results' }).first().click();

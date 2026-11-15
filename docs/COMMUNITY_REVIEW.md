@@ -118,6 +118,27 @@ unchanged.
 privacy, approved author/nonvoter access, zero votes, corrections, and historical
 revision exclusion. CI runs it in a disposable PostgreSQL database.
 
+### Sightings presentation
+
+The Sightings UI keeps approved, pending, and rejected cards white with neutral
+borders. Status badges communicate approval independently from confirmed
+Alive/Dead count tags, which appear only when the entire post is approved.
+Mixed posts show both tags.
+
+The collapsed **Community votes** section loads the summary API on expansion,
+showing counts, whole-number percentages, and total responses for each numbered
+insect. Percentages include Uncertain responses. Confirmed decisions are shown
+separately; Uncertain is a review response, not a final classification.
+
+Vote results refresh on feed updates and saved responses. Corrected revisions
+invalidate old results, and failed loads have an independent retry. Authors see
+results after approval without receiving a self-review prompt. Existing
+Alive/Dead/Uncertain review controls and finalization rules remain unchanged.
+
+Deploy the summary API migration before the matching frontend. The frontend
+also removes the obsolete inaccuracy flag action, badge, and app data requests;
+legacy database flag records remain intact.
+
 `tests/community-review-access.sql` applies the full migration chain against
 Supabase-like fixtures and checks self-review, active membership, five-seat limits,
 claim expiry/release, uncertain replacements, edits/removal, pre-vote privacy,

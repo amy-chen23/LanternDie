@@ -8,8 +8,10 @@ export function communityApproval(report: Pick<Report, 'workflow_status' | 'inse
     && report.insects.every(insect => insect.label === 'alive' || insect.label === 'dead') ? 'approved' : 'pending';
 }
 
-/** Presentation only: rejection wins; any confirmed DEAD insect makes a mixed card green. */
-export function communityTone(report: Pick<Report, 'workflow_status' | 'insects'>): 'dead' | 'neutral' | 'rejected' {
-  if (report.workflow_status === 'rejected') return 'rejected';
-  return report.insects.some(insect => insect.label === 'dead') ? 'dead' : 'neutral';
+export function confirmedInsectCounts(report: Pick<Report, 'workflow_status' | 'insects_ready' | 'insects'>) {
+  if (communityApproval(report) !== 'approved') return null;
+  return {
+    alive: report.insects.filter(insect => insect.label === 'alive').length,
+    dead: report.insects.filter(insect => insect.label === 'dead').length,
+  };
 }
