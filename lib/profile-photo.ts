@@ -22,6 +22,25 @@ export async function loadProfilePhoto(userId: string): Promise<string | null> {
   return data.signedUrl;
 }
 
+// Sign each author's photo once per feed load. Missing photos must not block reports.
+export async function loadProfilePhotos(userIds: string[]): Promise<Map<string, string>> {
+  const photos = new Map<string, string>();
+  if (!supabase || !userIds.length) return photos;
+  const paths = [...new Set(userIds)].map(photoPath);
+  try {
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrls(paths, 3600);
+    if (error) return photos;
+    for (const photo of data ?? []) {
+      if (!photo.error && photo.path && photo.signedUrl) {
+        photos.set(photo.path.split('/')[0], photo.signedUrl);
+      }
+    }
+  } catch {
+    // Keep the feed available when avatar storage is unavailable.
+  }
+  return photos;
+}
+
 export async function saveProfilePhoto(userId: string, asset: ImagePickerAsset): Promise<string> {
   if (!supabase) throw new Error('Supabase is not configured.');
 

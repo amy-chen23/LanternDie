@@ -1,0 +1,14 @@
+[
+  {
+    "file": "above.jpg",
+    "width": 135,
+    "height": 203,
+    "pytorch": 0.9997065663337708
+  },
+  {
+    "file": "below.jpg",
+    "width": 178,
+    "height": 146,
+    "pytorch": 0.0025345892645418644
+  }
+]

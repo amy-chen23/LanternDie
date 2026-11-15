@@ -3,32 +3,56 @@ import {
   ActivityIndicator,
   AppState,
   Alert,
+  BackHandler,
   Image,
   type ImageSourcePropType,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
+import { Text, TextInput, useAppFonts } from './lib/typography';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
-import { Flag, House, Pencil, Shield, Trophy, UserRound, UsersRound } from 'lucide-react-native';
-import { loadReports, loadPublicReports, loadVerificationReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
+import Check from 'lucide-react-native/icons/check';
+import ChevronDown from 'lucide-react-native/icons/chevron-down';
+import CircleHelp from 'lucide-react-native/icons/circle-question-mark';
+import Ellipsis from 'lucide-react-native/icons/ellipsis';
+import House from 'lucide-react-native/icons/house';
+import ListFilter from 'lucide-react-native/icons/list-filter';
+import Pencil from 'lucide-react-native/icons/pencil';
+import Search from 'lucide-react-native/icons/search';
+import RotateCw from 'lucide-react-native/icons/rotate-cw';
+import Shield from 'lucide-react-native/icons/shield';
+import Trash2 from 'lucide-react-native/icons/trash';
+import Trophy from 'lucide-react-native/icons/trophy';
+import UserRound from 'lucide-react-native/icons/user-round';
+import { deleteOwnedReport } from './lib/report-deletion';
+import { loadReports, loadPublicReports, loadVerificationReports, loadReportEngagement, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
+import { matchesSubmissionFilter, submissionStatusLabel, type SubmissionFilter } from './lib/submission-filters';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { loadLeaderboard, type LeaderboardEntry, type LeaderboardPeriod } from './lib/leaderboard';
 import { supabase } from './lib/supabase';
-import { reportProcessingMessage, hasPendingProcessing } from './lib/report-processing';
-import { ReportIdentification } from './components/ReportIdentification';
+import { hasPendingProcessing } from './lib/report-processing';
+import { ReportIdentification, IdentificationResultsModal, identificationActionLabel } from './components/ReportIdentification';
 import { CommunityReview } from './components/CommunityReview';
+import { InlineCommunityReview } from './components/InlineCommunityReview';
+import { loadReviewableReportIds } from './lib/reviews';
+import { PageHeader } from './components/PageHeader';
 import { AdminAccess } from './components/AdminAccess';
+import { CommunityApproval } from './components/CommunityApproval';
+import { communityApproval, confirmedInsectCounts } from './lib/community-feed';
+import { CommunityVotes } from './components/CommunityVotes';
+import { reportClassificationSummary } from './lib/classification-label';
+import { PublicationCelebration } from './components/PublicationCelebration';
+import { usePublicationCelebration } from './hooks/usePublicationCelebration';
 import { useAdminRole } from './hooks/useAdminRole';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -46,6 +70,7 @@ const palette = {
 };
 
 type Screen = 'home' | 'community' | 'leaderboard' | 'profile' | 'admin';
+type SightingsView = 'explore' | 'mine' | 'review';
 type AuthMode = 'sign-in' | 'sign-up';
 const previewLeaderboardRankings: Record<LeaderboardPeriod, LeaderboardEntry[]> = {
   weekly: [
@@ -95,26 +120,39 @@ function displayNameError(value: string): string | null {
 }
 
 export default function App() {
+  const [fontsLoaded, fontError] = useAppFonts();
   const [session, setSession] = useState<Session | null>(null);
   const adminRole = useAdminRole(session?.user.id);
   const [previewMode, setPreviewMode] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [screen, setScreen] = useState<Screen>('home');
+  const activeScreen = useRef<Screen>(screen);
+  activeScreen.current = screen;
+  const [sightingsView, setSightingsView] = useState<SightingsView>('explore');
+  const [submissionFilter, setSubmissionFilter] = useState<SubmissionFilter>('all');
+  const [editingDetails, setEditingDetails] = useState<ReportDetails>(newReportDetails);
   const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [reportDetails, setReportDetails] = useState<ReportDetails>(newReportDetails);
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [publicReports, setPublicReports] = useState<Report[]>([]);
   const [verificationReports, setVerificationReports] = useState<Report[]>([]);
+  const [exploreReviewIds, setExploreReviewIds] = useState<string[]>([]);
   const [publicReportsViewerId, setPublicReportsViewerId] = useState<string | null>(null);
   const [communityLoading, setCommunityLoading] = useState(false);
   const [communityError, setCommunityError] = useState('');
+  const [verificationLoading, setVerificationLoading] = useState(false);
+  const [verificationError, setVerificationError] = useState('');
+  const [submissionActionError, setSubmissionActionError] = useState('');
   const [communityBusyId, setCommunityBusyId] = useState<string | null>(null);
   const communityActionInFlight = useRef(false);
   const [reportsOwnerId, setReportsOwnerId] = useState<string | null>(null);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportError, setReportError] = useState('');
   const [savingReport, setSavingReport] = useState(false);
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
+  const deletionInFlight = useRef(false);
+  const deletedReports = useRef(new Set<string>());
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [profilePhotoOwnerId, setProfilePhotoOwnerId] = useState<string | null>(null);
   const [profilePhotoError, setProfilePhotoError] = useState('');
@@ -122,6 +160,7 @@ export default function App() {
   const activeUserId = useRef<string | null>(null);
   activeUserId.current = session?.user.id ?? null;
   const visibleReports = reportsOwnerId === session?.user.id ? reports : [];
+  const publication = usePublicationCelebration(session?.user.id, reports, !!session && reportsOwnerId === session.user.id);
   const latestVisibleReports = useRef<Report[]>([]);
   latestVisibleReports.current = visibleReports;
   const visiblePublicReports = publicReportsViewerId === session?.user.id ? publicReports : [];
@@ -148,11 +187,21 @@ export default function App() {
     setReports([]);
     setReportsOwnerId(null);
     setReportError('');
+    setEditingReportId(null);
+    setEditingDetails(newReportDetails());
+    setSubmissionActionError('');
+    setSightingsView('explore');
+    setSubmissionFilter('all');
+    setReportsLoading(false);
+    setCommunityLoading(false);
+    setVerificationLoading(false);
+    setVerificationError('');
   }, [session?.user.id]);
 
   useEffect(() => {
     setPublicReports([]);
     setVerificationReports([]);
+    setExploreReviewIds([]);
     setPublicReportsViewerId(null);
     setCommunityError('');
   }, [session?.user.id]);
@@ -183,11 +232,15 @@ export default function App() {
     if (!userId || !supabase) return;
     let alive = true;
     const resume = async () => {
-      const { error } = await supabase!.rpc('touch_member_activity');
-      if (alive && activeUserId.current === userId) {
-        if (error) setReportError('Could not update activity. Refresh to retry.');
-        await Promise.all([refreshReports(userId), refreshCommunity(userId)]);
-      }
+      // Loading the home screen must not wait for the activity heartbeat or
+      // download the community feed before that tab is opened.
+      void supabase!.rpc('touch_member_activity').then(({ error }) => {
+        if (error && alive && activeUserId.current === userId) setReportError('Could not update activity. Refresh to retry.');
+      });
+      if (alive && activeUserId.current === userId) await Promise.all([
+        refreshReports(userId, latestVisibleReports.current.length > 0),
+        ...(activeScreen.current === 'community' ? [refreshCommunity(userId)] : []),
+      ]);
     };
     void resume();
     const subscription = AppState.addEventListener('change', state => {
@@ -202,6 +255,10 @@ export default function App() {
   useEffect(() => {
     if (!adminRole.isAdmin) setScreen(current => current === 'admin' ? 'profile' : current);
   }, [adminRole.isAdmin]);
+
+  useEffect(() => {
+    if (screen === 'community') void refreshActiveSightings();
+  }, [screen, sightingsView, session?.user.id]);
 
   const processingPending = hasPendingProcessing(visibleReports.map(report => report.processing));
   const reviewsPending = visibleReports.some(report => report.workflow_status === 'pending_review'
@@ -225,7 +282,7 @@ export default function App() {
     try {
       const nextReports = await loadReports(userId, quiet ? latestVisibleReports.current : []);
       if (activeUserId.current === userId) {
-        setReports(nextReports);
+        setReports(nextReports.filter(report => !deletedReports.current.has(report.id)));
         setReportsOwnerId(userId);
       }
     } catch (error) {
@@ -237,22 +294,46 @@ export default function App() {
     }
   }
 
-  async function refreshCommunity(userId = session?.user.id) {
+  async function refreshSightingsFeed(view: 'explore' | 'review', userId = session?.user.id, quiet = false) {
     if (!userId) return;
-    setCommunityLoading(true);
-    setCommunityError('');
+    const setLoading = view === 'review' ? setVerificationLoading : setCommunityLoading;
+    const setError = view === 'review' ? setVerificationError : setCommunityError;
+    if (!quiet) setLoading(true);
+    setError('');
     try {
-      const [next, reviewQueue] = await Promise.all([loadPublicReports(userId), loadVerificationReports(userId)]);
+      const next = await (view === 'review' ? loadVerificationReports(userId) : loadPublicReports(userId));
+      let eligibleIds: string[] = [];
+      let reviewError = '';
+      if (view === 'explore') {
+        try { eligibleIds = await loadReviewableReportIds(next.filter(report => report.user_id !== userId
+          && report.insects.some(insect => insect.label === 'pending')).map(report => report.id)); }
+        catch (cause) { reviewError = cause instanceof Error ? cause.message : 'Review prompts could not load.'; }
+      }
       if (activeUserId.current === userId) {
-        setPublicReports(next);
-        setVerificationReports(reviewQueue);
+        (view === 'review' ? setVerificationReports : setPublicReports)(next.filter(report => !deletedReports.current.has(report.id)));
+        if (view === 'explore') { setExploreReviewIds(eligibleIds); if (reviewError) setError(reviewError); }
         setPublicReportsViewerId(userId);
       }
     } catch (error) {
-      if (activeUserId.current === userId) setCommunityError(error instanceof Error ? error.message : 'Could not load community reports.');
+      if (activeUserId.current === userId) setError(error instanceof Error ? error.message : 'Could not load sightings.');
     } finally {
-      if (activeUserId.current === userId) setCommunityLoading(false);
+      if (!quiet && activeUserId.current === userId) setLoading(false);
     }
+  }
+
+  async function refreshCommunity(userId = session?.user.id, quiet = false) {
+    await Promise.all([refreshSightingsFeed('explore', userId, quiet), refreshSightingsFeed('review', userId, quiet)]);
+  }
+
+  function openMySubmissions() {
+    setSightingsView('mine');
+    setSubmissionFilter('all');
+    setScreen('community');
+  }
+
+  async function refreshActiveSightings(quiet = false) {
+    if (sightingsView === 'mine') await refreshReports(session?.user.id, quiet);
+    else await refreshSightingsFeed(sightingsView, session?.user.id, quiet);
   }
 
   async function choosePhoto() {
@@ -285,7 +366,8 @@ export default function App() {
         setPhotoAsset(null);
         setReportDetails(newReportDetails());
         // The database already enqueued detection. No inference runs on this device.
-        void refreshReports(userId);
+        openMySubmissions();
+        void refreshReports(userId, true);
       }
     } catch (error) {
       setReportError(error instanceof Error ? error.message : 'Could not save your report.');
@@ -302,29 +384,63 @@ export default function App() {
   }
 
   async function saveEditedReport() {
-    if (!session || !editingReportId || savingReport) return;
+    if (!session || !editingReportId || savingReport || deletionInFlight.current) return;
     setSavingReport(true);
-    setReportError('');
+    setSubmissionActionError('');
+    const userId = session.user.id;
     try {
-      await updateReportDetails(editingReportId, reportDetails);
+      await updateReportDetails(editingReportId, editingDetails);
+      if (activeUserId.current !== userId) return;
       setEditingReportId(null);
-      setReportDetails(newReportDetails());
+      setEditingDetails(newReportDetails());
       await Promise.all([refreshReports(session.user.id), refreshCommunity(session.user.id)]);
     } catch (error) {
-      setReportError(error instanceof Error ? error.message : 'Could not update report.');
+      if (activeUserId.current === userId) setSubmissionActionError(error instanceof Error ? error.message : 'Could not update report.');
     } finally {
       setSavingReport(false);
     }
   }
 
+  async function deleteSubmission(report: Report) {
+    if (!supabase || !session || report.user_id !== session.user.id || savingReport || deletionInFlight.current) return;
+    const userId = session.user.id;
+    deletionInFlight.current = true;
+    setDeletingReportId(report.id);
+    setSubmissionActionError('');
+    try {
+      const photoRemoved = await deleteOwnedReport(supabase, report.id, userId);
+      deletedReports.current.add(report.id);
+      if (activeUserId.current !== userId) return;
+      setReports(current => current.filter(item => item.id !== report.id));
+      setPublicReports(current => current.filter(item => item.id !== report.id));
+      setVerificationReports(current => current.filter(item => item.id !== report.id));
+      if (editingReportId === report.id) {
+        setEditingReportId(null);
+        setEditingDetails(newReportDetails());
+      }
+      if (!photoRemoved) setSubmissionActionError('Submission deleted, but its photo could not be removed from storage.');
+    } catch (error) {
+      if (activeUserId.current === userId) setSubmissionActionError(error instanceof Error ? error.message : 'Could not delete your submission.');
+    } finally {
+      deletionInFlight.current = false;
+      setDeletingReportId(null);
+    }
+  }
+
+  function updateEngagementReports(update: (current: Report[]) => Report[]) {
+    setReports(update);
+    setPublicReports(update);
+  }
+
   async function changeVote(report: Report, value: -1 | 1) {
     if (!session || communityActionInFlight.current) return;
+    const setEngagementError = sightingsView === 'mine' ? setSubmissionActionError : setCommunityError;
     communityActionInFlight.current = true;
     const userId = session.user.id;
     const nextVote = report.my_vote === value ? 0 : value;
     setCommunityBusyId(report.id);
-    setCommunityError('');
-    setPublicReports(current => current.map(item => item.id === report.id ? {
+    setEngagementError('');
+    updateEngagementReports(current => current.map(item => item.id === report.id ? {
       ...item,
       upvotes: item.upvotes - Number(item.my_vote === 1) + Number(nextVote === 1),
       downvotes: item.downvotes - Number(item.my_vote === -1) + Number(nextVote === -1),
@@ -334,50 +450,19 @@ export default function App() {
       await setReportVote(report.id, userId, nextVote);
       try {
         const engagement = await loadReportEngagement(report.id);
-        if (activeUserId.current === userId) setPublicReports(current => current.map(item => item.id === report.id ? { ...item, ...engagement } : item));
+        if (activeUserId.current === userId) updateEngagementReports(current => current.map(item => item.id === report.id ? { ...item, ...engagement } : item));
       } catch {
-        if (activeUserId.current === userId) setCommunityError('Vote saved, but counts could not be refreshed. Refresh the feed to sync.');
+        if (activeUserId.current === userId) setEngagementError('Vote saved, but counts could not be refreshed. Refresh the feed to sync.');
       }
     } catch (error) {
       if (activeUserId.current === userId) {
-        setPublicReports(current => current.map(item => item.id === report.id && item.my_vote === nextVote ? {
+        updateEngagementReports(current => current.map(item => item.id === report.id && item.my_vote === nextVote ? {
           ...item,
           upvotes: item.upvotes - Number(nextVote === 1) + Number(report.my_vote === 1),
           downvotes: item.downvotes - Number(nextVote === -1) + Number(report.my_vote === -1),
           my_vote: report.my_vote,
         } : item));
-        setCommunityError(error instanceof Error ? error.message : 'Could not save vote.');
-      }
-    } finally {
-      communityActionInFlight.current = false;
-      setCommunityBusyId(null);
-    }
-  }
-
-  async function changeFlag(report: Report) {
-    if (!session || communityActionInFlight.current) return;
-    communityActionInFlight.current = true;
-    const userId = session.user.id;
-    const nextFlag = !report.my_flag;
-    setCommunityBusyId(report.id);
-    setCommunityError('');
-    setPublicReports(current => current.map(item => item.id === report.id ? {
-      ...item, my_flag: nextFlag, flagged_inaccurate: nextFlag || item.flagged_inaccurate,
-    } : item));
-    try {
-      await setReportFlag(report.id, userId, nextFlag);
-      try {
-        const engagement = await loadReportEngagement(report.id);
-        if (activeUserId.current === userId) setPublicReports(current => current.map(item => item.id === report.id ? { ...item, ...engagement } : item));
-      } catch {
-        if (activeUserId.current === userId) setCommunityError('Flag saved, but status could not be refreshed. Refresh the feed to sync.');
-      }
-    } catch (error) {
-      if (activeUserId.current === userId) {
-        setPublicReports(current => current.map(item => item.id === report.id && item.my_flag === nextFlag ? {
-          ...item, my_flag: report.my_flag, flagged_inaccurate: report.flagged_inaccurate,
-        } : item));
-        setCommunityError(error instanceof Error ? error.message : 'Could not save flag.');
+        setEngagementError(error instanceof Error ? error.message : 'Could not save vote.');
       }
     } finally {
       communityActionInFlight.current = false;
@@ -448,6 +533,10 @@ export default function App() {
     }
   }
 
+  if (!fontsLoaded && !fontError) {
+    return <SafeAreaView style={styles.loadingScreen}><ActivityIndicator color={palette.black} size="large" /></SafeAreaView>;
+  }
+
   if (loadingSession) {
     return (
       <SafeAreaView style={styles.loadingScreen}>
@@ -465,44 +554,38 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
+      <PublicationCelebration celebration={publication.celebration} onClose={publication.dismiss} />
       <View style={styles.appLayout}>
         <View style={styles.screenContainer}>
           {screen === 'home' ? (
             <HomeScreen
-              profilePhotoUrl={visibleProfilePhoto}
-              displayName={displayName}
-              previewMode={previewMode}
-              photoUri={photoAsset?.uri ?? null}
-              reportDetails={reportDetails}
-              onChangeReportDetails={setReportDetails}
-              editingReportId={editingReportId}
-              reports={visibleReports}
-              reportsLoading={reportsLoading}
-              reportError={reportError}
-              savingReport={savingReport}
-              onChoosePhoto={choosePhoto}
-              onSubmitReport={saveReport}
-              onCancelReportUpload={cancelReportUpload}
-              onSaveEditedReport={saveEditedReport}
-              onEditReport={(report) => {
-                setPhotoAsset(null);
-                setEditingReportId(report.id);
-                setReportDetails({ observed_on: report.observed_on, place_name: report.place_name ?? '', caption: report.caption ?? '' });
-              }}
-              onCancelEdit={() => { setEditingReportId(null); setReportDetails(newReportDetails()); }}
-              onRefreshReports={() => void refreshReports()}
-              onIdentificationChanged={async () => {
-                await refreshReports();
-                await refreshCommunity();
-              }}
-              onOpenProfile={() => setScreen('profile')}
+              profilePhotoUrl={visibleProfilePhoto} displayName={displayName} previewMode={previewMode}
+              photoUri={photoAsset?.uri ?? null} reportDetails={reportDetails} onChangeReportDetails={setReportDetails}
+              reports={visibleReports} reportError={reportError} savingReport={savingReport}
+              onChoosePhoto={choosePhoto} onSubmitReport={saveReport} onCancelReportUpload={cancelReportUpload}
+              onOpenSubmissions={openMySubmissions} onOpenProfile={() => setScreen('profile')}
             />
           ) : screen === 'community' ? (
             <CommunityScreen key={session?.user.id ?? 'preview'} previewMode={previewMode} reports={visiblePublicReports}
-              verificationReports={publicReportsViewerId === session?.user.id ? verificationReports : []} loading={communityLoading}
-              error={communityError} busyId={communityBusyId} userId={session?.user.id ?? null}
-              onRefresh={() => refreshCommunity()} onVote={(report, value) => void changeVote(report, value)}
-              onFlag={(report) => void changeFlag(report)} onOpenLeaderboard={() => setScreen('leaderboard')} />
+              myReports={visibleReports} exploreReviewIds={exploreReviewIds} view={sightingsView} onChangeView={setSightingsView}
+              submissionFilter={submissionFilter} onChangeSubmissionFilter={setSubmissionFilter}
+              verificationReports={publicReportsViewerId === session?.user.id ? verificationReports : []}
+              loading={sightingsView === 'mine' ? reportsLoading : sightingsView === 'review' ? verificationLoading : communityLoading}
+              error={sightingsView === 'mine' ? reportError : sightingsView === 'review' ? verificationError : communityError}
+              actionError={submissionActionError} busyId={communityBusyId} userId={session?.user.id ?? null}
+              editingReportId={editingReportId} editingDetails={editingDetails} onChangeEditingDetails={setEditingDetails}
+              savingReport={savingReport} deletingReportId={deletingReportId} onDeleteReport={deleteSubmission}
+              onEditReport={report => {
+                setSubmissionActionError('');
+                setEditingReportId(report.id);
+                setEditingDetails({ observed_on: report.observed_on, place_name: report.place_name ?? '', caption: report.caption ?? '' });
+              }}
+              onSaveEditedReport={saveEditedReport} onCancelEdit={() => { setEditingReportId(null); setSubmissionActionError(''); }}
+              onIdentificationChanged={async () => {
+                await refreshReports(session?.user.id, true);
+                if (sightingsView !== 'mine') await refreshSightingsFeed(sightingsView, session?.user.id, true);
+              }}
+              onRefresh={refreshActiveSightings} onVote={(report, value) => void changeVote(report, value)} />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen previewMode={previewMode} />
           ) : screen === 'admin' && adminRole.isAdmin && session ? (
@@ -537,7 +620,6 @@ export default function App() {
             return;
           }
           setScreen(next);
-          if (next === 'community' && session?.user.id) void refreshCommunity(session.user.id);
         }} />
       </View>
     </SafeAreaView>
@@ -759,64 +841,25 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
 }
 
 function HomeScreen({
-  profilePhotoUrl,
-  displayName,
-  previewMode,
-  photoUri,
-  reportDetails,
-  onChangeReportDetails,
-  editingReportId,
-  reports,
-  reportsLoading,
-  reportError,
-  savingReport,
-  onChoosePhoto,
-  onSubmitReport,
-  onCancelReportUpload,
-  onSaveEditedReport,
-  onEditReport,
-  onCancelEdit,
-  onRefreshReports,
-  onIdentificationChanged,
-  onOpenProfile,
+  profilePhotoUrl, displayName, previewMode, photoUri, reportDetails, onChangeReportDetails,
+  reports, reportError, savingReport, onChoosePhoto, onSubmitReport, onCancelReportUpload,
+  onOpenSubmissions, onOpenProfile,
 }: {
-  profilePhotoUrl: string | null;
-  displayName: string;
-  previewMode: boolean;
-  photoUri: string | null;
-  reportDetails: ReportDetails;
-  onChangeReportDetails: (details: ReportDetails) => void;
-  editingReportId: string | null;
-  reports: Report[];
-  reportsLoading: boolean;
-  reportError: string;
-  savingReport: boolean;
-  onChoosePhoto: () => void;
-  onSubmitReport: () => void;
-  onCancelReportUpload: () => void;
-  onSaveEditedReport: () => void;
-  onEditReport: (report: Report) => void;
-  onCancelEdit: () => void;
-  onRefreshReports: () => void;
-  onIdentificationChanged: () => Promise<void>;
-  onOpenProfile: () => void;
+  profilePhotoUrl: string | null; displayName: string; previewMode: boolean; photoUri: string | null;
+  reportDetails: ReportDetails; onChangeReportDetails: (details: ReportDetails) => void;
+  reports: Report[]; reportError: string; savingReport: boolean;
+  onChoosePhoto: () => void; onSubmitReport: () => void; onCancelReportUpload: () => void;
+  onOpenSubmissions: () => void; onOpenProfile: () => void;
 }) {
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <View style={styles.homeHeader}>
-        <View>
-          <View style={styles.homeBrandRow}>
-            <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.homeLogo} />
-            <Text style={styles.homeBrandText}>LANTERNDIE  /  FIELD LOG</Text>
-          </View>
-          <Text style={styles.greeting}>Good to see you.</Text>
-        </View>
+      <PageHeader label="FIELD LOG" action={
         <Pressable accessibilityLabel="Open profile" onPress={onOpenProfile} style={styles.avatarButton}>
           {profilePhotoUrl ? <Image source={{ uri: profilePhotoUrl }} style={styles.homeAvatarImage} /> : (
             <Text style={styles.avatarText}>{displayName.slice(0, 1).toUpperCase()}</Text>
           )}
         </Pressable>
-      </View>
+      } />
 
       {previewMode ? (
         <View style={styles.previewBanner}>
@@ -863,10 +906,9 @@ function HomeScreen({
           <Text style={styles.sectionEyebrow}>ADD TO THE COUNT</Text>
           <Text style={styles.sectionTitle}>Log a lanternfly</Text>
         </View>
-        <Text style={styles.sectionIndex}>01 / 03</Text>
       </View>
 
-      {!editingReportId ? <Pressable
+      <Pressable
         accessibilityRole="button"
         onPress={onChoosePhoto}
         style={({ pressed }) => [styles.uploadButton, pressed && styles.pressed]}
@@ -881,16 +923,16 @@ function HomeScreen({
           <Text style={styles.uploadSubtitle}>{photoUri ? 'Tap to replace your selection' : 'Choose an image from your library'}</Text>
         </View>
         <Text style={styles.uploadArrow}>{'>'}</Text>
-      </Pressable> : null}
+      </Pressable>
       {photoUri ? (
         <View style={styles.selectedPhotoNotice}>
           <Text style={styles.selectedPhotoTitle}>PHOTO SELECTED</Text>
           <Text style={styles.selectedPhotoCopy}>
-            {previewMode ? 'This preview stays on your device.' : 'Human-verified beta: photos are sent to Roboflow for detection, then community reviewers or admins decide alive/dead. Background checks continue after you leave. Reports publish after every insect is reviewed.'}
+            {previewMode ? 'This preview stays on your device.' : 'Human-verified beta: photos are sent to Roboflow for detection, then community reviewers or admins decide alive/dead. Background checks continue after you leave. Your upload appears in the community feed while it awaits approval. Only confirmed dead insects earn credit.'}
           </Text>
         </View>
       ) : null}
-      {photoUri && !editingReportId ? (
+      {photoUri ? (
         <>
           {!previewMode ? <ReportFields details={reportDetails} onChange={onChangeReportDetails} /> : null}
           <View style={styles.reportUploadActions}>
@@ -910,59 +952,19 @@ function HomeScreen({
         </>
       ) : null}
       {reportError ? <Text accessibilityRole="alert" style={styles.formMessage}>{reportError}</Text> : null}
-      {savingReport && !photoUri ? <Text accessibilityLiveRegion="polite" style={styles.formMessage}>Report saved. Background checks will continue automatically.</Text> : null}
 
       <View style={styles.privacyNote}>
         <Text style={styles.privacyGlyph}>i</Text>
         <Text style={styles.privacyText}>Location is optional place text. Device GPS is not collected.</Text>
       </View>
 
-      <View style={styles.sectionHeadingRow}>
-        <View>
-          <Text style={styles.sectionEyebrow}>YOUR RECORD</Text>
-          <Text style={styles.sectionTitle}>Recent activity</Text>
+      <Pressable accessibilityRole="button" onPress={onOpenSubmissions} style={({ pressed }) => [styles.submissionsLink, pressed && styles.pressed]}>
+        <View style={styles.reportCopy}>
+          <Text style={styles.emptyActivityTitle}>View my submissions</Text>
+          <Text style={styles.emptyActivityCopy}>Track progress and manage your sightings.</Text>
         </View>
-        <Text style={styles.sectionIndex}>02 / 03</Text>
-      </View>
-      {!previewMode ? (
-        <Pressable accessibilityRole="button" onPress={onRefreshReports} style={styles.refreshButton}>
-          <Text style={styles.refreshText}>Refresh reports</Text>
-        </Pressable>
-      ) : null}
-      {reportsLoading ? <ActivityIndicator color={palette.red} /> : reports.length ? (
-        reports.map((report) => (
-          <View key={report.id} style={styles.reportCard}>
-            <View style={styles.reportRow}>
-              {report.photo_url ? <Image source={{ uri: report.photo_url }} style={styles.reportPhoto} /> : <View style={styles.reportPhoto} />}
-              <View style={styles.reportCopy}>
-                <Text style={styles.emptyActivityTitle}>{report.workflow_status === 'published' ? 'Published report' : 'Your submission'}</Text>
-                <Text accessibilityLiveRegion="polite" style={styles.emptyActivityCopy}>{reportProcessingMessage(report.workflow_status, report.processing)}</Text>
-                <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
-                {report.caption ? <Text style={styles.emptyActivityCopy}>{report.caption}</Text> : null}
-                {report.flagged_inaccurate ? <Text style={styles.emptyActivityCopy}>Flagged for inaccuracy</Text> : null}
-              </View>
-              <View style={styles.reportAside}>
-                <Text accessibilityLabel={`Score ${reportScore(report)}`} style={styles.reportScore}>{reportScore(report)}</Text>
-                {!previewMode ? <Pressable accessibilityRole="button" accessibilityLabel="Edit report details" onPress={() => onEditReport(report)}><Text style={styles.refreshText}>Edit</Text></Pressable> : null}
-              </View>
-            </View>
-            <ReportIdentification report={report} onChanged={onIdentificationChanged} />
-            {editingReportId === report.id ? <View style={styles.editPanel}>
-              <ReportFields details={reportDetails} onChange={onChangeReportDetails} />
-              <Pressable accessibilityRole="button" disabled={savingReport} onPress={onSaveEditedReport} style={[styles.primaryButton, savingReport && styles.disabled]}>
-                <Text style={styles.primaryButtonText}>{savingReport ? 'Saving...' : 'Save details'}</Text>
-              </Pressable>
-              <Pressable accessibilityRole="button" onPress={onCancelEdit} style={styles.refreshButton}><Text style={styles.refreshText}>Cancel</Text></Pressable>
-            </View> : null}
-          </View>
-        ))
-      ) : (
-        <View style={styles.emptyActivity}>
-          <View style={styles.emptyActivityLine} />
-          <Text style={styles.emptyActivityTitle}>Nothing logged yet</Text>
-          <Text style={styles.emptyActivityCopy}>Your submitted reports will appear here.</Text>
-        </View>
-      )}
+        <Text style={styles.leaderboardArrow}>›</Text>
+      </Pressable>
       <Text style={styles.homeFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
     </ScrollView>
   );
@@ -979,7 +981,7 @@ function ReportFields({ details, onChange }: { details: ReportDetails; onChange:
     <Text style={styles.reportInputLabel}>CAPTION · OPTIONAL</Text>
     <TextInput accessibilityLabel="Report caption" value={details.caption} onChangeText={caption => onChange({ ...details, caption })}
       placeholder="Add context about the sighting" placeholderTextColor="#9AA098" maxLength={280} multiline style={[styles.reportInput, styles.captionInput]} />
-    <Text style={styles.privacyText}>Approved reports are public to signed-in members. Pending submissions are available to reviewers and admins.</Text>
+    <Text style={styles.privacyText}>Uploaded photos and captions are visible to signed-in community members immediately, including while awaiting approval.</Text>
   </View>;
 }
 
@@ -987,104 +989,291 @@ const CommunityPhoto = memo(function CommunityPhoto({ uri }: { uri: string | nul
   return uri ? <Image source={{ uri }} style={styles.communityPhoto} /> : <View style={styles.communityPhoto} />;
 });
 
-function CommunityScreen({ previewMode, reports, verificationReports, loading, error, busyId, userId, onRefresh, onVote, onFlag, onOpenLeaderboard }: {
-  previewMode: boolean; reports: Report[]; verificationReports: Report[]; loading: boolean; error: string; busyId: string | null; userId: string | null;
-  onRefresh: () => Promise<void>; onVote: (report: Report, value: -1 | 1) => void; onFlag: (report: Report) => void;
-  onOpenLeaderboard: () => void;
+function CommunityAuthor({ report }: { report: Report }) {
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const photoUri = report.author_photo_url;
+  return <View style={styles.communityAuthor}>
+    <View style={styles.communityAuthorAvatar}>
+      {photoUri && photoUri !== failedUri ? <Image source={{ uri: photoUri }} style={styles.communityAuthorPhoto}
+        accessibilityLabel={`${report.author_name}'s profile photo`} onError={() => setFailedUri(photoUri)} />
+        : <Text style={styles.avatarText}>{report.author_name.trim().slice(0, 1).toUpperCase() || '?'}</Text>}
+    </View>
+    <Text style={[styles.emptyActivityTitle, styles.communityAuthorName]}>{report.author_name}</Text>
+  </View>;
+}
+
+function CommunityResultsButton({ report, review = false, onPress }: { report: Report; review?: boolean; onPress: () => void }) {
+  const label = review ? 'Review sighting' : identificationActionLabel(report);
+  return <Pressable accessibilityRole="button" accessibilityLabel={review ? `Review sighting by ${report.author_name}` : `View identification results for sighting by ${report.author_name}: ${label}`}
+    onPress={onPress} style={({ pressed }) => [styles.communityResultsButton, report.photo_url ? styles.communityResultsOverlay : styles.communityResultsFallback, pressed && styles.pressed]}>
+    <Search size={18} color={palette.ink} strokeWidth={2} />
+    <Text style={styles.communityResultsText}>{label}</Text>
+  </Pressable>;
+}
+
+const submissionFilterLabels: Record<SubmissionFilter, string> = {
+  all: 'All', pending: 'Pending', earned: 'Earned Points', no_points: 'No Points',
+};
+
+const submissionGuidance: Record<SubmissionFilter, { title: string; descriptions: string[] }> = {
+  all: {
+    title: 'How submissions work',
+    descriptions: [
+      'Photo checks identify lanternflies in your image. Checks continue after you leave this screen.',
+      'Community reviewers or admins decide whether each insect is alive or dead. Your report publishes when every insect has a final decision.',
+      'Verified dead insects on published reports earn kill credit. Rejected submissions, including exact duplicate photos, do not.',
+    ],
+  },
+  pending: {
+    title: 'While your submission is pending',
+    descriptions: [
+      'Photo saved → Photo checks → Alive/dead review → Published',
+      'Checks run in the background and interrupted checks retry automatically. Some submissions need admin review.',
+      'Your report publishes when every insect has a final decision. If checks could not finish, you can retry after 15 minutes.',
+    ],
+  },
+  earned: {
+    title: 'Earned Points',
+    descriptions: [
+      'These sightings earned confirmed DEAD insect credits. Each confirmed DEAD insect earns one point; a single sighting can earn multiple points.',
+    ],
+  },
+  no_points: {
+    title: 'No Points',
+    descriptions: [
+      'Published sightings with no confirmed DEAD insect credit, and rejected submissions, earn no points. Confirmed ALIVE insects earn zero points.',
+      'Open a sighting’s results to see its photo checks and any available details.',
+    ],
+  },
+};
+
+function CommunityScreen({ previewMode, reports, myReports, verificationReports, exploreReviewIds, view, onChangeView,
+  submissionFilter, onChangeSubmissionFilter, loading, error, actionError, busyId, userId, onRefresh,
+  onVote, editingReportId, editingDetails, onChangeEditingDetails,
+  savingReport, deletingReportId, onDeleteReport, onEditReport, onSaveEditedReport, onCancelEdit, onIdentificationChanged,
+}: {
+  previewMode: boolean; reports: Report[]; myReports: Report[]; verificationReports: Report[]; exploreReviewIds: string[];
+  view: SightingsView; onChangeView: (view: SightingsView) => void;
+  submissionFilter: SubmissionFilter; onChangeSubmissionFilter: (filter: SubmissionFilter) => void;
+  loading: boolean; error: string; actionError: string; busyId: string | null; userId: string | null;
+  onRefresh: (quiet?: boolean) => Promise<void>; onVote: (report: Report, value: -1 | 1) => void;
+  editingReportId: string | null; editingDetails: ReportDetails;
+  onChangeEditingDetails: (details: ReportDetails) => void; savingReport: boolean; deletingReportId: string | null;
+  onDeleteReport: (report: Report) => Promise<void>; onEditReport: (report: Report) => void;
+  onSaveEditedReport: () => void; onCancelEdit: () => void; onIdentificationChanged: () => Promise<void>;
 }) {
-  const [verificationOnly, setVerificationOnly] = useState(false);
+  const latestRefresh = useRef(onRefresh);
+  latestRefresh.current = onRefresh;
+  useEffect(() => {
+    if (previewMode) return;
+    let refreshing = false;
+    const timer = setInterval(async () => {
+      if (refreshing || AppState.currentState !== 'active') return;
+      refreshing = true;
+      try { await latestRefresh.current(true); } finally { refreshing = false; }
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [previewMode]);
+  const [voteResultsVersion, setVoteResultsVersion] = useState(0);
+  async function refreshReviewResults(quiet = false) {
+    setVoteResultsVersion(value => value + 1);
+    await onRefresh(quiet);
+  }
   const [reviewReport, setReviewReport] = useState<Report | null>(null);
-  const reviewReports = verificationReports;
-  const displayed = verificationOnly ? reviewReports : reports;
+  const [resultsReport, setResultsReport] = useState<Report | null>(null);
+  const [menuReportId, setMenuReportId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [helpFilter, setHelpFilter] = useState<SubmissionFilter | null>(null);
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const selectedStatusLabel = submissionFilterLabels[submissionFilter];
+  useEffect(() => {
+    if (!statusMenuOpen) return;
+    if (Platform.OS === 'web') {
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') setStatusMenuOpen(false);
+      };
+      document.addEventListener('keydown', onKeyDown);
+      return () => document.removeEventListener('keydown', onKeyDown);
+    }
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setStatusMenuOpen(false);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [statusMenuOpen]);
+  const currentResultsReport = resultsReport
+    ? [...myReports, ...reports, ...verificationReports].find(report => report.id === resultsReport.id) ?? resultsReport : null;
+  const reportBusy = savingReport || deletingReportId !== null;
+  const verificationOnly = view === 'review';
+  const displayed = view === 'mine' ? myReports.filter(report => matchesSubmissionFilter(report, submissionFilter))
+    : verificationOnly ? verificationReports : reports;
+  const chooseView = (next: SightingsView) => {
+    setStatusMenuOpen(false);
+    setHelpFilter(null);
+    setMenuReportId(null);
+    setConfirmDeleteId(null);
+    onChangeView(next);
+  };
   return (<>
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <View style={styles.communityHeader}>
-        <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.pageLogo} />
-        <Text style={styles.eyebrow}>LANTERNDIE  /  COMMUNITY</Text>
-        <Text style={styles.communityTitle}>Out here, together.</Text>
-        <Text style={styles.communityDescription}>
-          Recent public sightings from the community.
-        </Text>
-      </View>
+      <PageHeader label="SIGHTINGS" action={
+          !previewMode ? <Pressable accessibilityRole="button" accessibilityLabel="Refresh feed"
+            accessibilityState={{ disabled: loading, busy: loading }} disabled={loading} onPress={() => void onRefresh()}
+            style={({ pressed }) => [styles.feedReloadButton, loading && styles.disabled, pressed && styles.pressed]}>
+            {loading ? <ActivityIndicator size="small" color={palette.red} /> : <RotateCw color={palette.red} size={20} strokeWidth={2} />}
+          </Pressable> : null
+      } />
       {previewMode ? (
         <View style={styles.previewBanner}>
           <Text style={styles.previewBannerText}>PREVIEW MODE</Text>
-          <Text style={styles.previewBannerDetail}>Community data is not connected yet.</Text>
+          <Text style={styles.previewBannerDetail}>Sightings data is not connected yet.</Text>
         </View>
       ) : null}
 
-      <View style={styles.sectionHeadingRow}>
-        <View>
-          <Text style={styles.sectionEyebrow}>FROM THE FIELD</Text>
-          <Text style={styles.sectionTitle}>Community feed</Text>
-        </View>
-        <Text style={styles.sectionIndex}>01 / 02</Text>
+      <View style={styles.feedToolbar}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.feedTabs}>
+          {([['explore', 'Explore'], ['mine', 'My submissions'], ['review', 'Needs review']] as const).map(([value, label]) => (
+            <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected: view === value }}
+              onPress={() => chooseView(value)} style={({ pressed }) => [styles.feedTab, view === value && styles.feedTabSelected, pressed && styles.pressed]}>
+              <Text style={[styles.feedTabText, view === value && styles.feedTabTextSelected]}>{label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       </View>
-      {!previewMode ? <Pressable accessibilityRole="button" onPress={onRefresh} style={styles.refreshButton}><Text style={styles.refreshText}>Refresh feed</Text></Pressable> : null}
-      <View style={styles.actionRow}>
-        <Pressable accessibilityRole="button" accessibilityState={{ selected: !verificationOnly }} onPress={() => setVerificationOnly(false)} style={styles.refreshButton}><Text style={styles.refreshText}>All sightings</Text></Pressable>
-        <Pressable accessibilityRole="button" accessibilityState={{ selected: verificationOnly }} onPress={() => setVerificationOnly(true)} style={styles.refreshButton}><Text style={styles.refreshText}>Needs your verification ({reviewReports.length})</Text></Pressable>
-      </View>
+      {view === 'mine' ? <View style={styles.submissionFilters}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Filter submissions by status: ${selectedStatusLabel}`}
+          accessibilityState={{ expanded: statusMenuOpen }}
+          onPress={() => { setStatusMenuOpen(current => !current); setMenuReportId(null); setConfirmDeleteId(null); }}
+          style={({ pressed }) => [styles.statusFilterButton, pressed && styles.pressed]}>
+          <ListFilter size={18} color={palette.ink} />
+          <Text style={styles.statusFilterText}>Status: {selectedStatusLabel}</Text>
+          <ChevronDown size={16} color={palette.muted} />
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={`About ${selectedStatusLabel} submissions`}
+          onPress={() => { setStatusMenuOpen(false); setHelpFilter(submissionFilter); }}
+          style={({ pressed }) => [styles.submissionHelpButton, pressed && styles.pressed]}>
+          <CircleHelp size={18} color={palette.muted} />
+        </Pressable>
+        {statusMenuOpen ? <View accessibilityRole="menu" accessibilityLabel="Submission status" style={styles.statusFilterMenu}>
+          {(['all', 'pending', 'earned', 'no_points'] as const).map(filter => (
+            <Pressable key={filter} accessibilityRole="menuitem" accessibilityState={{ selected: submissionFilter === filter }}
+              onPress={() => { onChangeSubmissionFilter(filter); setStatusMenuOpen(false); }}
+              style={({ pressed }) => [styles.statusFilterOption, submissionFilter === filter && styles.statusFilterOptionSelected, pressed && styles.pressed]}>
+              <Text style={styles.statusFilterText}>{submissionFilterLabels[filter]}</Text>
+              <View style={styles.statusFilterCheck}>{submissionFilter === filter ? <Check size={18} color={palette.red} /> : null}</View>
+            </Pressable>
+          ))}
+          </View>
+        : null}
+      </View> : null}
+      {statusMenuOpen ? <Pressable accessibilityRole="button" accessibilityLabel="Close status filter menu"
+        onPress={() => setStatusMenuOpen(false)} style={styles.statusFilterBackdrop} /> : null}
+      {actionError ? <Text accessibilityRole="alert" style={styles.formMessage}>{actionError}</Text> : null}
       {error ? <Text accessibilityRole="alert" style={styles.formMessage}>{error}</Text> : null}
       {loading ? <ActivityIndicator color={palette.red} /> : displayed.map(report => <View key={report.id} style={styles.communityCard}>
-        {verificationOnly ? <Pressable accessibilityRole="button" accessibilityLabel={`Open report by ${report.author_name} for review`}
-          onPress={() => setReviewReport(report)}>
-          <CommunityPhoto uri={report.photo_url} />
-          <Text style={styles.refreshText}>Open report</Text>
-        </Pressable> : <CommunityPhoto uri={report.photo_url} />}
-        <ReportIdentification report={report} />
-        <Text style={styles.emptyActivityTitle}>{report.author_name}</Text>
-        <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
+        <View style={styles.sightingAuthorRow}>
+          <View style={styles.reportCopy}><CommunityAuthor report={report} /></View>
+          {!previewMode && report.user_id === userId ? <Pressable accessibilityRole="button" accessibilityLabel="Submission options"
+            accessibilityState={{ expanded: menuReportId === report.id, disabled: reportBusy }} disabled={reportBusy}
+            onPress={() => { setMenuReportId(current => current === report.id ? null : report.id); setConfirmDeleteId(null); }}
+            style={styles.reportMenuButton}><Ellipsis size={22} color={palette.ink} /></Pressable> : null}
+        </View>
+        {report.photo_url ? <View style={styles.communityPhotoContainer}>
+          {verificationOnly ? <Pressable accessibilityRole="button" accessibilityLabel={`Review sighting by ${report.author_name}`}
+            onPress={() => setReviewReport(report)}>
+            <CommunityPhoto uri={report.photo_url} />
+          </Pressable> : <CommunityPhoto uri={report.photo_url} />}
+          <CommunityResultsButton report={report} review={verificationOnly}
+            onPress={() => verificationOnly ? setReviewReport(report) : setResultsReport(report)} />
+        </View> : <CommunityResultsButton report={report} review={verificationOnly}
+            onPress={() => verificationOnly ? setReviewReport(report) : setResultsReport(report)} />}
+        <CommunityApproval status={communityApproval(report)} counts={confirmedInsectCounts(report)} />
+        {report.insects.length || report.identification?.status === 'detected' || report.identification?.status === 'not_detected' ? <Text style={styles.emptyActivityTitle}>{reportClassificationSummary(report)}</Text> : null}
         {report.caption ? <Text style={styles.communityCaption}>{report.caption}</Text> : null}
-        {report.flagged_inaccurate ? <Text style={styles.flagBadge}>Flagged for inaccuracy</Text> : null}
-        {report.workflow_status === 'published' ? <View style={styles.actionRow}>
-          {report.user_id !== userId ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
-              disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
-              <Text style={report.my_vote === 1 ? styles.voteArrowSelected : styles.voteArrow}>↑</Text>
-            </Pressable>
-          ) : null}
-          <Text accessibilityLabel={`Score ${reportScore(report)}`} style={styles.communityScore}>{reportScore(report)}</Text>
-          {report.user_id !== userId ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Downvote report" accessibilityState={{ selected: report.my_vote === -1 }}
-              disabled={Boolean(busyId)} onPress={() => onVote(report, -1)} style={[styles.voteButton, report.my_vote === -1 && styles.voteButtonSelected]}>
-              <Text style={report.my_vote === -1 ? styles.voteArrowSelected : styles.voteArrow}>↓</Text>
-            </Pressable>
-          ) : null}
+        <Text style={styles.sightingStatus}>{submissionStatusLabel(report.workflow_status)}</Text>
+        <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
+        {report.user_id === userId ? <ReportIdentification report={report} onChanged={onIdentificationChanged} actionsOnly /> : null}
+        {editingReportId === report.id ? <View style={styles.editPanel}>
+          <ReportFields details={editingDetails} onChange={onChangeEditingDetails} />
+          <Pressable accessibilityRole="button" disabled={reportBusy} onPress={onSaveEditedReport} style={[styles.primaryButton, reportBusy && styles.disabled]}>
+            <Text style={styles.primaryButtonText}>{savingReport ? 'Saving...' : 'Save details'}</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={onCancelEdit} style={styles.refreshButton}><Text style={styles.refreshText}>Cancel</Text></Pressable>
         </View> : null}
-        {report.workflow_status === 'published' && report.user_id !== userId ? <Pressable accessibilityRole="button" accessibilityLabel={report.my_flag ? 'Remove inaccuracy flag' : 'Flag as inaccurate'}
-          disabled={Boolean(busyId)} onPress={() => onFlag(report)} style={styles.flagAction}>
-          <Flag color={palette.red} size={14} strokeWidth={2} />
-          <Text style={report.my_flag ? styles.actionSelected : styles.refreshText}>{report.my_flag ? 'Unflag inaccuracy' : 'Flag inaccuracy'}</Text>
-        </Pressable> : null}
+        {menuReportId === report.id ? <Pressable accessibilityRole="button" accessibilityLabel="Close submission options"
+          onPress={() => setMenuReportId(null)} style={styles.reportMenuBackdrop} /> : null}
+        {menuReportId === report.id ? <View style={[styles.reportMenu, styles.sightingMenu]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Edit report details" disabled={reportBusy}
+            onPress={() => { setMenuReportId(null); onEditReport(report); }} style={styles.reportMenuItem}>
+            <Pencil size={16} color={palette.ink} /><Text style={styles.reportMenuText}>Edit</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Delete submission" disabled={reportBusy}
+            onPress={() => { setMenuReportId(null); setConfirmDeleteId(report.id); }} style={styles.reportMenuItem}>
+            <Trash2 size={16} color={palette.red} /><Text style={[styles.reportMenuText, styles.deleteText]}>Delete</Text>
+          </Pressable>
+        </View> : null}
+        {confirmDeleteId === report.id ? <View style={styles.deleteConfirmation}>
+          <Text style={styles.emptyActivityTitle}>Delete this submission?</Text>
+          <Text style={styles.emptyActivityCopy}>This will remove your post and its verified kills. This cannot be undone.</Text>
+          <View style={styles.deleteActions}>
+            <Pressable accessibilityRole="button" disabled={reportBusy} onPress={() => setConfirmDeleteId(null)} style={styles.reportMenuItem}>
+              <Text style={styles.reportMenuText}>Cancel</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Confirm delete submission" disabled={reportBusy}
+              onPress={() => void onDeleteReport(report)} style={[styles.reportMenuItem, reportBusy && styles.disabled]}>
+              {deletingReportId === report.id ? <ActivityIndicator color={palette.red} /> : <Trash2 size={16} color={palette.red} />}
+              <Text style={[styles.reportMenuText, styles.deleteText]}>{deletingReportId === report.id ? 'Deleting…' : 'Delete'}</Text>
+            </Pressable>
+          </View>
+        </View> : null}
+
+        {!previewMode && view === 'explore' && userId && report.user_id !== userId ? <InlineCommunityReview
+          report={report} viewerId={userId} eligible={exploreReviewIds.includes(report.id)}
+          onChanged={() => refreshReviewResults(true)} onOpenPhoto={() => setReviewReport(report)} /> : null}
+        {!previewMode && userId && report.workflow_status !== 'rejected' && report.insects_ready && report.insects.length > 0 ? <CommunityVotes
+          key={`${userId}:${report.id}`} report={report} viewerId={userId} refreshVersion={voteResultsVersion} /> : null}
+        {report.workflow_status === 'published' ? <View style={styles.actionRow}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
+            disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
+            <Text style={report.my_vote === 1 ? styles.voteArrowSelected : styles.voteArrow}>↑</Text>
+          </Pressable>
+          <Text accessibilityLabel={`Score ${reportScore(report)}`} style={styles.communityScore}>{reportScore(report)}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Downvote report" accessibilityState={{ selected: report.my_vote === -1 }}
+            disabled={Boolean(busyId)} onPress={() => onVote(report, -1)} style={[styles.voteButton, report.my_vote === -1 && styles.voteButtonSelected]}>
+            <Text style={report.my_vote === -1 ? styles.voteArrowSelected : styles.voteArrow}>↓</Text>
+          </Pressable>
+        </View> : null}
       </View>)}
-      {!loading && !displayed.length ? <View style={styles.communityEmpty}>
+      {!loading && !error && !displayed.length ? <View style={styles.communityEmpty}>
         <View style={styles.communityEmptyMark}><Text style={styles.communityEmptyGlyph}>+</Text></View>
-        <Text style={styles.emptyActivityTitle}>{verificationOnly ? 'No sightings need your review' : 'The field is quiet'}</Text>
-        <Text style={styles.emptyActivityCopy}>Public reports will show up here.</Text>
+        <Text style={styles.emptyActivityTitle}>{view === 'mine' ? (submissionFilter === 'all' ? 'No submissions yet' : submissionFilter === 'pending' ? 'No pending submissions' : `No submissions marked ${selectedStatusLabel}`) : verificationOnly ? 'No sightings need your review' : 'The field is quiet'}</Text>
+        <Text style={styles.emptyActivityCopy}>{view === 'mine' ? 'Your matching submissions will appear here. Add a photo from Home to log a sighting.' : verificationOnly ? 'Eligible sightings will appear here when they need your verification.' : 'Published sightings will show up here.'}</Text>
       </View> : null}
 
-      <View style={[styles.sectionHeadingRow, styles.communitySectionGap]}>
-        <View>
-          <Text style={styles.sectionEyebrow}>THIS WEEK</Text>
-          <Text style={styles.sectionTitle}>Leaderboard</Text>
-        </View>
-        <Text style={styles.sectionIndex}>02 / 02</Text>
-      </View>
-      <Pressable accessibilityRole="button" accessibilityLabel="View leaderboard" onPress={onOpenLeaderboard} style={({ pressed }) => [styles.leaderboardLink, pressed && styles.pressed]}>
-        <View style={styles.leaderboardLinkIcon}>
-          <Image accessibilityElementsHidden source={require('./assets/star.png')} resizeMode="contain" style={styles.communityLeaderboardIcon} />
-        </View>
-        <View style={styles.leaderboardCopy}>
-          <Text style={styles.leaderboardTitle}>Weekly and monthly verified rankings</Text>
-          <Text style={styles.emptyActivityCopy}>Verified dead insects on published reports count toward rankings.</Text>
-        </View>
-        <Text style={styles.leaderboardArrow}>›</Text>
-      </Pressable>
       <Text style={styles.homeFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
     </ScrollView>
+    <IdentificationResultsModal report={currentResultsReport} onClose={() => setResultsReport(null)} />
+    {helpFilter !== null ? <Modal transparent animationType="fade" visible onRequestClose={() => setHelpFilter(null)}>
+      <View style={styles.submissionHelpBackdrop}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close submission description" onPress={() => setHelpFilter(null)}
+          style={StyleSheet.absoluteFill} />
+        <View accessibilityViewIsModal style={styles.submissionHelpDialog}>
+          <View style={styles.submissionHelpHeader}>
+            <Text accessibilityRole="header" style={[styles.emptyActivityTitle, styles.reportCopy]}>{submissionGuidance[helpFilter].title}</Text>
+            <Pressable accessibilityRole="button" onPress={() => setHelpFilter(null)} style={styles.submissionHelpButton}>
+              <Text style={styles.refreshText}>Close</Text>
+            </Pressable>
+          </View>
+          <ScrollView style={styles.submissionHelpContent} contentContainerStyle={styles.submissionHelpDescriptions}>
+            {submissionGuidance[helpFilter].descriptions.map(description => (
+              <Text key={description} style={styles.submissionGuideText}>{description}</Text>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal> : null}
     {reviewReport ? <CommunityReview key={reviewReport.id} report={reviewReport}
-      onClose={() => { setReviewReport(null); void onRefresh(); }} onChanged={onRefresh} /> : null}
+      onClose={() => { setReviewReport(null); void refreshReviewResults(); }} onChanged={refreshReviewResults} /> : null}
   </>);
 }
 
@@ -1121,13 +1310,7 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <View style={styles.leaderboardHeader}>
-        <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.pageLogo} />
-        <Text style={styles.eyebrow}>LANTERNDIE  /  RANKINGS</Text>
-        <Text style={styles.leaderboardPageTitle}>Leaderboard</Text>
-        <Text style={styles.communityDescription}>Rankings based on verified dead insects in published reports.</Text>
-      </View>
-
+      <PageHeader label="RANKINGS" />
       <View style={styles.previewBanner}>
         <Text style={styles.previewBannerText}>{previewMode ? 'PREVIEW SAMPLE' : 'HUMAN-VERIFIED BETA'}</Text>
         <Text style={styles.previewBannerDetail}>
@@ -1199,7 +1382,7 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
             </View>
             <View style={styles.leaderboardCount}>
               <Text style={styles.leaderboardCountValue}>{entry.verifiedKills}</Text>
-              <Text style={styles.leaderboardCountLabel}>{previewMode ? 'SAMPLE' : 'UPLOADS'}</Text>
+              <Text style={styles.leaderboardCountLabel}>{previewMode ? 'SAMPLE' : entry.verifiedKills === 1 ? 'POINT' : 'POINTS'}</Text>
             </View>
           </View>
         )) : (
@@ -1257,7 +1440,7 @@ function BottomNavigation({
 }) {
   const tabs = [
     { screen: 'home' as const, label: 'Home', Icon: House },
-    { screen: 'community' as const, label: 'Community', Icon: UsersRound },
+    { screen: 'community' as const, label: 'Sightings', Icon: Search },
     { screen: 'leaderboard' as const, label: 'Leaderboard', Icon: Trophy },
     { screen: 'profile' as const, label: 'My Profile', Icon: UserRound },
     ...(isAdmin ? [{ screen: 'admin' as const, label: 'Admin', Icon: Shield }] : []),
@@ -1352,11 +1535,7 @@ function ProfileScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.pageContent}>
-      <View style={styles.profileHeader}>
-        <Image accessibilityLabel="LanternDie logo" source={require('./assets/logo.png')} resizeMode="contain" style={styles.pageLogo} />
-        <Text style={styles.eyebrow}>YOUR ACCOUNT</Text>
-      </View>
-      <Text style={styles.profileTitle}>Profile</Text>
+      <PageHeader label="PROFILE" />
       <View style={styles.profileIdentity}>
         <Pressable
           accessibilityLabel="Change profile picture"
@@ -1449,7 +1628,7 @@ function ProfileScreen({
         <ProfileStat label="SUBMITTED REPORTS" value={String(submittedCount)} />
         <ProfileStat label="STREAK" value="0 days" />
         <ProfileStat label="VERIFIED KILLS" value={String(verifiedKills)} />
-        <ProfileStat label="FIELD POINTS" value="0" />
+        <ProfileStat label="FIELD POINTS" value={String(verifiedKills)} />
       </View>
 
       <Text style={[styles.sectionEyebrow, styles.badgesEyebrow]}>BADGES</Text>
@@ -1500,17 +1679,13 @@ const styles = StyleSheet.create({
   authScroll: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 18, paddingBottom: 28 },
   authTopline: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   appLogo: { width: 42, height: 42 },
-  pageLogo: { width: 48, height: 48, marginBottom: 8 },
-  homeLogo: { width: 48, height: 48 },
-  homeBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  homeBrandText: { color: palette.muted, fontSize: 12, fontWeight: '700', letterSpacing: 1.5 },
   brandMark: { width: 34, height: 34, borderRadius: 17, overflow: 'hidden', textAlign: 'center', textAlignVertical: 'center', backgroundColor: palette.black, color: palette.red, fontSize: 12, fontWeight: '800' },
   eyebrow: { color: palette.muted, fontSize: 10, fontWeight: '700', letterSpacing: 1.4 },
   authHero: { paddingTop: 48, paddingBottom: 28 },
   heroKicker: { color: palette.red, fontSize: 10, fontWeight: '800', letterSpacing: 1.8, marginBottom: 12 },
-  authTitle: { color: palette.ink, fontSize: 42, lineHeight: 47, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' },
+  authTitle: { color: palette.ink, fontSize: 42, lineHeight: 47 },
   authDescription: { color: '#565656', fontSize: 15, lineHeight: 23, marginTop: 14, maxWidth: 330 },
-  authPanel: { backgroundColor: palette.paper, padding: 18, borderWidth: 1, borderColor: palette.line },
+  authPanel: { borderRadius: 16, backgroundColor: palette.paper, padding: 18, borderWidth: 1, borderColor: palette.line },
   modeSwitch: { flexDirection: 'row', backgroundColor: '#F1F1F1', padding: 3, marginBottom: 22 },
   modeButton: { flex: 1, paddingVertical: 11, alignItems: 'center' },
   modeButtonActive: { backgroundColor: palette.black },
@@ -1534,20 +1709,19 @@ const styles = StyleSheet.create({
   previewButtonText: { color: palette.red, fontSize: 13, fontWeight: '800' },
   authFooter: { color: '#93988F', textAlign: 'center', fontSize: 9, fontWeight: '700', letterSpacing: 1.5, marginTop: 24 },
   pageContent: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 34 },
-  homeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 },
-  greeting: { color: palette.ink, fontSize: 26, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 5 },
+  greeting: { color: palette.ink, fontSize: 26, marginTop: 5 },
   avatarButton: { width: 42, height: 42, borderRadius: 21, overflow: 'hidden', backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.red },
   homeAvatarImage: { width: 40, height: 40 },
   avatarText: { color: palette.red, fontSize: 15, fontWeight: '800' },
-  previewBanner: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, backgroundColor: palette.paleRed, borderLeftWidth: 3, borderLeftColor: palette.red, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 14 },
+  previewBanner: { borderRadius: 8, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, backgroundColor: palette.paleRed, borderLeftWidth: 3, borderLeftColor: palette.red, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 14 },
   previewBannerText: { color: palette.red, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
   previewBannerDetail: { color: '#555555', fontSize: 10, flexShrink: 1 },
-  streakCard: { backgroundColor: palette.black, minHeight: 208, padding: 20, overflow: 'hidden', position: 'relative' },
+  streakCard: { borderRadius: 16, backgroundColor: palette.black, minHeight: 208, padding: 20, overflow: 'hidden', position: 'relative' },
   streakTopline: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   streakLabel: { color: '#E6E6E6', fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
   streakDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: palette.red },
   streakNumberRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 16 },
-  streakNumber: { color: palette.red, fontSize: 70, lineHeight: 78, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' },
+  streakNumber: { color: palette.red, fontSize: 70, lineHeight: 78 },
   streakDays: { color: palette.white, fontSize: 11, fontWeight: '800', letterSpacing: 1.8, marginLeft: 10 },
   streakDivider: { height: 1, backgroundColor: '#414141', marginTop: 7, marginBottom: 12 },
   streakBottomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -1555,25 +1729,24 @@ const styles = StyleSheet.create({
   streakMark: { color: '#B8B8B8', fontSize: 10, fontWeight: '700' },
   streakDecor: { position: 'absolute', width: 120, height: 120, borderWidth: 1, borderColor: '#353535', borderRadius: 60, right: -48, top: 48, alignItems: 'center', justifyContent: 'center' },
   streakDecorRing: { width: 82, height: 82, borderWidth: 1, borderColor: '#353535', borderRadius: 41 },
-  statsRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderBottomWidth: 1, borderColor: palette.line, paddingVertical: 17, marginBottom: 27 },
+  statsRow: { borderRadius: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderBottomWidth: 1, borderColor: palette.line, paddingVertical: 17, marginBottom: 27 },
   statBlock: { flex: 1, paddingHorizontal: 13 },
   statLabel: { color: palette.muted, fontSize: 8, fontWeight: '800', letterSpacing: 1.1 },
-  statValue: { color: palette.ink, fontSize: 28, lineHeight: 34, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 5 },
+  statValue: { color: palette.ink, fontSize: 28, lineHeight: 34, marginTop: 5 },
   statFoot: { color: palette.muted, fontSize: 10 },
   statSeparator: { width: 1, height: 46, backgroundColor: palette.line },
   sectionHeadingRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 13 },
   sectionEyebrow: { color: palette.red, fontSize: 9, fontWeight: '800', letterSpacing: 1.3 },
-  sectionTitle: { color: palette.ink, fontSize: 21, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 4 },
-  sectionIndex: { color: '#888888', fontSize: 9, fontWeight: '700', marginBottom: 3 },
-  uploadButton: { minHeight: 86, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, flexDirection: 'row', alignItems: 'center' },
-  uploadIcon: { width: 54, height: 58, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.paleRed },
+  sectionTitle: { color: palette.ink, fontSize: 21, marginTop: 4 },
+  uploadButton: { borderRadius: 16, minHeight: 86, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, flexDirection: 'row', alignItems: 'center' },
+  uploadIcon: { borderRadius: 8, width: 54, height: 58, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.paleRed },
   uploadPlus: { color: palette.red, fontSize: 30, lineHeight: 34, fontWeight: '300' },
-  photoPreview: { width: 70, height: 58, backgroundColor: palette.line },
+  photoPreview: { borderRadius: 8, width: 70, height: 58, backgroundColor: palette.line },
   uploadCopy: { flex: 1, paddingHorizontal: 13 },
   uploadTitle: { color: palette.ink, fontSize: 14, fontWeight: '700' },
   uploadSubtitle: { color: palette.muted, fontSize: 10, marginTop: 5 },
   uploadArrow: { color: palette.red, fontSize: 17, fontWeight: '600', paddingHorizontal: 5 },
-  selectedPhotoNotice: { backgroundColor: '#F0F0F0', padding: 11, marginTop: 8 },
+  selectedPhotoNotice: { borderRadius: 8, backgroundColor: '#F0F0F0', padding: 11, marginTop: 8 },
   selectedPhotoTitle: { color: palette.red, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
   selectedPhotoCopy: { color: '#5D665D', fontSize: 11, lineHeight: 16, marginTop: 4 },
   reportUploadActions: { flexDirection: 'row', gap: 10 },
@@ -1584,79 +1757,102 @@ const styles = StyleSheet.create({
   privacyNote: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 29 },
   privacyGlyph: { width: 16, height: 16, textAlign: 'center', textAlignVertical: 'center', borderRadius: 8, overflow: 'hidden', backgroundColor: palette.paleRed, color: palette.red, fontSize: 10, fontWeight: '800' },
   privacyText: { color: palette.muted, fontSize: 10, flex: 1 },
-  emptyActivity: { backgroundColor: '#F0F0F0', minHeight: 112, padding: 15, justifyContent: 'center' },
-  emptyActivityLine: { width: 22, height: 2, backgroundColor: palette.red, marginBottom: 11 },
   emptyActivityTitle: { color: palette.ink, fontSize: 14, fontWeight: '700' },
   emptyActivityCopy: { color: palette.muted, fontSize: 11, marginTop: 4 },
   refreshButton: { alignSelf: 'flex-start', marginBottom: 12, paddingVertical: 6 },
   refreshText: { color: palette.red, fontSize: 11, fontWeight: '700' },
-  reportRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: palette.paper, borderBottomWidth: 1, borderBottomColor: palette.line, padding: 10 },
-  reportPhoto: { width: 64, height: 56, backgroundColor: palette.line },
-  reportCard: { backgroundColor: palette.paper, marginBottom: 8 },
   reportCopy: { flex: 1 },
-  reportAside: { alignItems: 'flex-end', justifyContent: 'center', gap: 8, minWidth: 32 },
-  reportScore: { color: palette.ink, fontSize: 18, fontWeight: '800' },
+  reportMenuButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
+  reportMenuBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 10 },
+  reportMenu: { position: 'absolute', top: 54, right: 10, zIndex: 11, elevation: 8, minWidth: 150, borderWidth: 1, borderColor: palette.line, borderRadius: 10, backgroundColor: palette.paper, boxShadow: '0px 4px 14px rgba(0, 0, 0, 0.14)' },
+  reportMenuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, paddingHorizontal: 16 },
+  reportMenuText: { color: palette.ink, fontSize: 13, fontWeight: '700' },
+  deleteText: { color: palette.red },
+  deleteConfirmation: { padding: 14, backgroundColor: palette.paleRed },
+  deleteActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 },
   editPanel: { padding: 12 },
-  reportFields: { padding: 12, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, marginVertical: 10 },
+  reportFields: { borderRadius: 16, padding: 12, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, marginVertical: 10 },
   reportInputLabel: { color: palette.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.7, marginTop: 10, marginBottom: 6 },
   reportInput: { borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, color: palette.ink, paddingHorizontal: 10, minHeight: 42, fontSize: 14 },
   captionInput: { minHeight: 72, paddingTop: 10, textAlignVertical: 'top' },
   homeFooter: { color: '#93988F', fontSize: 8, fontWeight: '700', letterSpacing: 1.1, textAlign: 'center', marginTop: 25 },
-  communityHeader: { paddingTop: 8, paddingBottom: 27 },
-  communityTitle: { color: palette.ink, fontSize: 32, lineHeight: 38, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 13 },
+  submissionsLink: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 16, backgroundColor: palette.paper },
+  sightingAuthorRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10, minHeight: 44 },
+  sightingStatus: { color: palette.muted, fontSize: 11, fontWeight: '700', marginVertical: 6 },
+  sightingMenu: { top: 54, right: 12 },
+  submissionFilters: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 16, zIndex: 20 },
+  statusFilterButton: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, borderWidth: 1, borderColor: palette.line, borderRadius: 10, paddingHorizontal: 12, backgroundColor: palette.paper },
+  statusFilterText: { color: palette.ink, fontSize: 13, fontWeight: '600' },
+  statusFilterMenu: { position: 'absolute', top: 52, left: 0, width: 220, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, borderRadius: 12, overflow: 'hidden', zIndex: 21, elevation: 8, boxShadow: '0px 4px 14px rgba(0, 0, 0, 0.14)' },
+  statusFilterOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 44, paddingHorizontal: 14 },
+  statusFilterOptionSelected: { backgroundColor: palette.paleRed },
+  statusFilterCheck: { width: 18, height: 18 },
+  statusFilterBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 15 },
+  submissionHelpButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  submissionHelpBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0, 0, 0, 0.45)', padding: 22 },
+  submissionHelpDialog: { width: '100%', maxWidth: 420, maxHeight: '80%', padding: 18, borderRadius: 16, backgroundColor: palette.paper },
+  submissionHelpHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
+  submissionHelpContent: { flexShrink: 1 },
+  submissionHelpDescriptions: { gap: 12 },
+  submissionGuideText: { color: palette.muted, fontSize: 12, lineHeight: 18 },
+  feedToolbar: { borderBottomWidth: 1, borderBottomColor: palette.line, marginBottom: 16 },
+  feedTabs: { flexGrow: 1, flexDirection: 'row', gap: 12 },
+  feedTab: { minHeight: 48, paddingHorizontal: 8, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
+  feedTabSelected: { borderBottomColor: palette.red },
+  feedTabText: { color: palette.muted, fontSize: 13, fontWeight: '500' },
+  feedTabTextSelected: { color: palette.ink, fontWeight: '700' },
+  feedReloadButton: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.paper, alignItems: 'center', justifyContent: 'center' },
+  rankingsDescription: { marginTop: 0, marginBottom: 23 },
   communityDescription: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 9, maxWidth: 320 },
-  communityEmpty: { minHeight: 146, padding: 18, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
-  communityCard: { backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, marginBottom: 12 },
-  communityPhoto: { width: '100%', height: 220, backgroundColor: palette.line, marginBottom: 10 },
+  communityEmpty: { borderRadius: 16, minHeight: 146, padding: 18, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
+  communityCard: { borderRadius: 16, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, marginBottom: 12 },
+  communityPhoto: { borderRadius: 8, width: '100%', height: 220, backgroundColor: palette.line },
+  communityAuthor: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  communityAuthorAvatar: { width: 32, height: 32, borderRadius: 16, overflow: 'hidden', backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center' },
+  communityAuthorPhoto: { width: 32, height: 32, resizeMode: 'cover' },
+  communityAuthorName: { flex: 1 },
+  communityPhotoContainer: { position: 'relative', marginBottom: 10 },
+  communityResultsButton: { minHeight: 44, minWidth: 44, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: palette.white, borderRadius: 10, borderWidth: 1, borderColor: palette.line },
+  communityResultsOverlay: { position: 'absolute', top: 8, right: 8, maxWidth: '90%' },
+  communityResultsFallback: { alignSelf: 'flex-end', marginBottom: 10 },
+  communityResultsText: { color: palette.ink, fontSize: 12, fontWeight: '700', flexShrink: 1 },
   communityCaption: { color: palette.ink, fontSize: 13, marginTop: 8 },
-  flagBadge: { color: palette.red, fontSize: 11, fontWeight: '800', marginTop: 8 },
   actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginTop: 10 },
   voteButton: { width: 25, height: 25, borderRadius: 19, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
   voteButtonSelected: { borderColor: palette.red, backgroundColor: palette.paleRed },
   voteArrow: { color: palette.ink, fontSize: 12, lineHeight: 18, fontWeight: '700' },
   voteArrowSelected: { color: palette.red, fontSize: 12, lineHeight: 18, fontWeight: '700' },
   communityScore: { color: palette.ink, fontSize: 14, fontWeight: '800', textAlign: 'center', minWidth: 38 },
-  flagAction: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 8, marginTop: 2 },
-  actionSelected: { color: palette.red, fontSize: 11, fontWeight: '800' },
   communityEmptyMark: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginBottom: 11 },
   communityEmptyGlyph: { color: palette.red, fontSize: 24, lineHeight: 28, fontWeight: '300' },
   communitySectionGap: { marginTop: 29 },
-  leaderboardLink: { minHeight: 78, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, paddingHorizontal: 12 },
-  leaderboardLinkIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginRight: 11 },
-  communityLeaderboardIcon: { width: 30, height: 30 },
-  leaderboardCopy: { flex: 1 },
-  leaderboardTitle: { color: palette.ink, fontSize: 12, fontWeight: '700' },
   leaderboardArrow: { color: palette.red, fontSize: 24, paddingLeft: 8 },
-  leaderboardHeader: { paddingTop: 8, paddingBottom: 23 },
-  leaderboardPageTitle: { color: palette.ink, fontSize: 34, lineHeight: 40, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginTop: 13 },
-  leaderboardPanel: { backgroundColor: '#AAB07A', padding: 14, marginBottom: 28 },
-  leaderboardFilters: { flexDirection: 'row', padding: 3, backgroundColor: 'rgba(255,255,255,0.55)', marginBottom: 20 },
-  leaderboardFilter: { flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  leaderboardPanel: { borderRadius: 16, backgroundColor: '#AAB07A', padding: 14, marginBottom: 28 },
+  leaderboardFilters: { borderRadius: 8, flexDirection: 'row', padding: 3, backgroundColor: 'rgba(255,255,255,0.55)', marginBottom: 20 },
+  leaderboardFilter: { borderRadius: 8, flex: 1, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   leaderboardFilterSelected: { backgroundColor: palette.black },
   leaderboardFilterIcon: { width: 25, height: 25 },
   leaderboardFilterText: { color: palette.muted, fontSize: 12, fontWeight: '700' },
   leaderboardFilterTextSelected: { color: palette.white },
   leaderboardPeriodHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 },
   leaderboardPeriodIcon: { width: 42, height: 42 },
-  leaderboardRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderBottomWidth: 1, borderBottomColor: palette.line, paddingHorizontal: 11, gap: 9 },
-  leaderboardRank: { width: 23, color: palette.red, fontSize: 17, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' },
+  leaderboardRow: { borderRadius: 8, minHeight: 76, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderBottomWidth: 1, borderBottomColor: palette.line, paddingHorizontal: 11, gap: 9 },
+  leaderboardRank: { width: 23, color: palette.red, fontSize: 17 },
   leaderboardAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F0F0F0', alignItems: 'center', justifyContent: 'center' },
   leaderboardAvatarText: { color: palette.ink, fontSize: 12, fontWeight: '800' },
   leaderboardDetails: { flex: 1, minWidth: 0 },
   leaderboardName: { color: palette.ink, fontSize: 13, fontWeight: '700' },
-  winnerBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, backgroundColor: '#AAB07A', paddingHorizontal: 6, paddingVertical: 3, marginTop: 5 },
+  winnerBadge: { borderRadius: 8, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, backgroundColor: '#AAB07A', paddingHorizontal: 6, paddingVertical: 3, marginTop: 5 },
   badgeIconSlot: { borderWidth: 1, borderColor: '#858B5A', borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.2)' },
   winnerBadgeText: { color: palette.ink, fontSize: 7, fontWeight: '900', letterSpacing: 0.4 },
   leaderboardCount: { minWidth: 42, alignItems: 'flex-end' },
   leaderboardCountValue: { color: palette.ink, fontSize: 20, fontWeight: '800' },
   leaderboardCountLabel: { color: palette.muted, fontSize: 7, fontWeight: '800', letterSpacing: 0.7, marginTop: 1 },
-  leaderboardEmptyState: { minHeight: 210, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 22 },
+  leaderboardEmptyState: { borderRadius: 16, minHeight: 210, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 22 },
   leaderboardEmptyIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   leaderboardEmptyTitle: { color: palette.ink, fontSize: 15, fontWeight: '700', textAlign: 'center' },
   leaderboardEmptyCopy: { color: palette.muted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 6 },
   leaderboardEmptyNote: { color: palette.muted, fontSize: 10, lineHeight: 15, textAlign: 'center', marginTop: 12 },
-  profileHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 22 },
-  profileTitle: { color: palette.ink, fontSize: 34, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif', marginBottom: 22 },
   profileIdentity: { alignItems: 'center', gap: 12, paddingVertical: 24, borderTopWidth: 1, borderBottomWidth: 1, borderColor: palette.line, marginBottom: 28 },
   profileAvatar: { width: 100, height: 100, borderRadius: 50, overflow: 'hidden', backgroundColor: palette.black, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
   profileAvatarImage: { width: 100, height: 100 },
@@ -1678,20 +1874,20 @@ const styles = StyleSheet.create({
   nameCancelButton: { minHeight: 38, minWidth: 68, alignItems: 'center', justifyContent: 'center' },
   nameCancelText: { color: palette.muted, fontSize: 12, fontWeight: '700' },
   nameSaveText: { color: palette.white, fontSize: 12, fontWeight: '700' },
-  profileStats: { backgroundColor: palette.paper, marginTop: 11, paddingHorizontal: 14 },
+  profileStats: { borderRadius: 16, backgroundColor: palette.paper, marginTop: 11, paddingHorizontal: 14 },
   profileStatRow: { minHeight: 50, borderBottomWidth: 1, borderColor: palette.line, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   profileStatLabel: { color: palette.muted, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   profileStatValue: { color: palette.ink, fontSize: 14, fontWeight: '700' },
   badgesEyebrow: { marginTop: 28 },
-  badgeRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, padding: 13, marginTop: 11, borderWidth: 1, borderColor: palette.line },
-  badgePreviewRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: palette.paper, paddingHorizontal: 11, paddingVertical: 8, marginTop: 8, borderWidth: 1, borderColor: palette.line },
+  badgeRow: { borderRadius: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, padding: 13, marginTop: 11, borderWidth: 1, borderColor: palette.line },
+  badgePreviewRow: { borderRadius: 16, minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: palette.paper, paddingHorizontal: 11, paddingVertical: 8, marginTop: 8, borderWidth: 1, borderColor: palette.line },
   badgeSeal: { width: 39, height: 39, borderRadius: 20, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center' },
   badgeSealText: { color: palette.red, fontSize: 10, fontWeight: '800' },
   badgeCopy: { flex: 1, paddingHorizontal: 11 },
   badgeTitle: { color: palette.ink, fontSize: 13, fontWeight: '700' },
   badgeDescription: { color: palette.muted, fontSize: 10, marginTop: 4 },
   badgeLocked: { color: '#A1A59B', fontSize: 8, fontWeight: '800', letterSpacing: 0.8 },
-  accountNote: { marginTop: 23, padding: 14, backgroundColor: '#F0F0F0' },
+  accountNote: { borderRadius: 16, marginTop: 23, padding: 14, backgroundColor: '#F0F0F0' },
   accountNoteTitle: { color: palette.red, fontSize: 9, fontWeight: '900', letterSpacing: 1.1 },
   accountNoteText: { color: '#555555', fontSize: 11, lineHeight: 17, marginTop: 6 },
   signOutButton: { minHeight: 48, borderWidth: 1, borderColor: palette.red, alignItems: 'center', justifyContent: 'center', marginTop: 22 },

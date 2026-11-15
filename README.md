@@ -16,18 +16,19 @@ See [beta release details](docs/HUMAN_VERIFIED_BETA.md) and the
 ## Public repository mirror
 
 The [mirror workflow](.github/workflows/mirror-public.yml) copies commits from
-this repository's `main` branch to the public `main` branch in
+all branches in this repository to branches with the same names in
 [`amy-chen23/LanternDie`](https://github.com/amy-chen23/LanternDie). It runs on
-pushes to `main`, can be started manually from Actions, and retries daily.
-It leaves other branches and tags alone. Direct changes to public `main` may
-be overwritten by the next mirror run.
+pushes to any branch, can be started manually from Actions, and retries daily.
+Each run syncs all current branches, including force-pushes and branch deletions,
+and leaves tags alone. Direct changes to public branches may be overwritten;
+public branches absent from this source repository are deleted.
 
 To enable it, create a fine-grained personal access token scoped to the public
 repository with **Contents: Read and write** and **Workflows: Read and write**
 permissions. Save it as an Actions repository secret named `PUBLIC_REPO_TOKEN`
 in this source repository. Then run **Mirror to public repository** from its
-Actions tab once to seed public `main`. Keep credentials and private data out
-of the source `main` history before enabling the mirror.
+Actions tab once to seed all public branches. Keep credentials and private data
+out of every source branch's history before enabling the mirror.
 
 ## Run locally
 
@@ -171,14 +172,12 @@ Selecting a photo previews it locally. Before submitting, users choose an
 observation date, optional general location and caption, and whether the report
 is private or public. They can edit those details later in Recent activity.
 Public reports appear in the Community feed for signed-in members, who can
-upvote, downvote, or flag another member's report as inaccurate. The first flag
-shows an inaccuracy badge; this is not a verification decision. Votes and flags
-can be removed. Device GPS is not collected, and friends-only sharing is not
-available until friendships exist. The submitted count updates from saved
+upvote or downvote reports. Votes can be removed. Device GPS is not collected,
+and friends-only sharing is not available until friendships exist. The submitted count updates from saved
 reports. Automatic verification, true verified counts, points, and streaks
 are not implemented. The temporary weekly and monthly leaderboard counts each
-saved report as one verified kill; community likes, flags, and classifier
-scores are excluded. Preview mode uses separate labeled sample rankings.
+saved report as one verified kill; community likes and classifier scores are
+excluded. Preview mode uses separate labeled sample rankings.
 
 Native builds include experimental on-phone
 alive/dead scoring after Roboflow detection, plus a separate community

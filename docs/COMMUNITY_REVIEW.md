@@ -94,6 +94,51 @@ existing label even when new reviewer seats are full.
 
 ## Verification and rollout
 
+### Community vote summary API
+
+Apply `20261114231144_community_vote_summary.sql` before deploying a client
+that calls `get_report_vote_summary(p_report_id uuid)`. This additive migration
+is compatible with the existing app; it changes no vote data, quorum,
+publication, or credit rules.
+
+The RPC returns active insects in ID order with their current revision, final
+label, and nullable `alive_votes`, `dead_votes`, and `uncertain_votes`. All three
+counts are null until the viewer has responded to that insect's current
+revision, or the whole post is approved. Approved totals are visible to
+signed-in report viewers, including authors and inactive members. Corrections
+remove that broad access until every current insect is finalized again. Zero
+counts mean no responses; null counts mean results are restricted.
+
+The public RPC is an invoker wrapper over a private, explicitly authorized
+aggregate reader. It exposes no voter identities or model scores and never
+claims or renews review seats. Existing voting and feedback endpoints are
+unchanged.
+
+`tests/community-vote-summary-access.sql` covers authorization, per-insect
+privacy, approved author/nonvoter access, zero votes, corrections, and historical
+revision exclusion. CI runs it in a disposable PostgreSQL database.
+
+### Sightings presentation
+
+The Sightings UI keeps approved, pending, and rejected cards white with neutral
+borders. Status badges communicate approval independently from confirmed
+Alive/Dead count tags, which appear only when the entire post is approved.
+Mixed posts show both tags.
+
+The collapsed **Community votes** section loads the summary API on expansion,
+showing counts, whole-number percentages, and total responses for each numbered
+insect. Percentages include Uncertain responses. Confirmed decisions are shown
+separately; Uncertain is a review response, not a final classification.
+
+Vote results refresh on feed updates and saved responses. Corrected revisions
+invalidate old results, and failed loads have an independent retry. Authors see
+results after approval without receiving a self-review prompt. Existing
+Alive/Dead/Uncertain review controls and finalization rules remain unchanged.
+
+Deploy the summary API migration before the matching frontend. The frontend
+also removes the obsolete inaccuracy flag action, badge, and app data requests;
+legacy database flag records remain intact.
+
 `tests/community-review-access.sql` applies the full migration chain against
 Supabase-like fixtures and checks self-review, active membership, five-seat limits,
 claim expiry/release, uncertain replacements, edits/removal, pre-vote privacy,

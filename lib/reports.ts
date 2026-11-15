@@ -2,23 +2,27 @@ import type { ImagePickerAsset } from 'expo-image-picker';
 import * as Crypto from 'expo-crypto';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { decode } from 'base64-arraybuffer';
+import { loadProfilePhotos } from './profile-photo';
 import { supabase } from './supabase';
+import { communityFeedStatuses } from './community-feed';
+import { loadReportPhotoUrls } from './report-photo-urls';
 import type { ProcessingStatus, WorkflowStatus } from './report-processing';
 import type { Identification } from './identification';
 import type { DeathAssessment, VerificationVote } from './death-assessment';
 
 const bucket = 'report-photos';
 const maxBytes = 5 * 1024 * 1024;
-const fields = 'id, user_id, created_at, photo_path, observed_on, place_name, caption, visibility, upvotes, downvotes, flagged_inaccurate, workflow_status, insects_ready';
+const fields = 'id, user_id, created_at, photo_path, observed_on, place_name, caption, visibility, upvotes, downvotes, workflow_status, insects_ready';
 
 export type Visibility = 'private' | 'public';
 export type ReportDetails = { observed_on: string; place_name: string; caption: string };
 export type ReportInsect = { id: string; report_id: string; box: { x: number; y: number; width: number; height: number }; revision: number; label: 'pending' | 'alive' | 'dead' };
 export type Report = {
   id: string; user_id: string; created_at: string; photo_path: string; photo_url: string | null;
+  photo_url_expires_at?: number;
   observed_on: string; place_name: string | null; caption: string | null; visibility: Visibility;
-  upvotes: number; downvotes: number; flagged_inaccurate: boolean; author_name: string;
-  my_vote: -1 | 0 | 1; my_flag: boolean;
+  upvotes: number; downvotes: number; author_name: string; author_photo_url: string | null;
+  my_vote: -1 | 0 | 1;
   workflow_status: WorkflowStatus;
   insects_ready: boolean;
   processing: ProcessingStatus | null;
@@ -44,33 +48,13 @@ function cleanDetails(details: ReportDetails) {
   return { observed_on: date, place_name: place || null, caption: caption || null };
 }
 
-function readAsDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => typeof reader.result === 'string' && reader.result.includes(',')
-      ? resolve(`data:image/jpeg;base64,${reader.result.split(',')[1]}`)
-      : reject(new Error('Could not read photo.'));
-    reader.onerror = () => reject(new Error('Could not read photo.'));
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function loadPhoto(path: string): Promise<string | null> {
-  if (!supabase) throw new Error('Supabase is not configured.');
-  const { data, error } = await supabase.storage.from(bucket).download(path);
-  if (error || !data) return null;
-  return readAsDataUrl(data);
-}
-
 async function decorateReports(rows: any[], viewerId: string, previous: Report[] = []): Promise<Report[]> {
-  const photos = new Map(previous.map(report => [report.photo_path, report.photo_url]));
   if (!supabase || !rows.length) return [];
   const reportIds = rows.map(row => row.id as string);
   const authorIds = [...new Set(rows.map(row => row.user_id as string))];
-  const [names, votes, flags, identifications, assessments, verificationVotes, processing, insects, credits] = await Promise.all([
+  const [names, votes, identifications, assessments, verificationVotes, processing, insects, credits, authorPhotos, photos] = await Promise.all([
     supabase.from('community_profiles').select('user_id, display_name').in('user_id', authorIds),
     supabase.from('report_votes').select('report_id, value').eq('voter_id', viewerId).in('report_id', reportIds),
-    supabase.from('report_flags').select('report_id').eq('flagger_id', viewerId).in('report_id', reportIds),
     supabase.from('report_identifications')
       .select('report_id, status, model_id, confidence_threshold, image_width, image_height, detections, error_message, updated_at')
       .in('report_id', reportIds),
@@ -81,10 +65,11 @@ async function decorateReports(rows: any[], viewerId: string, previous: Report[]
       .select('report_id,status,attempts,available_at,last_error_code,updated_at').in('report_id', reportIds),
     supabase.from('report_insects').select('id,report_id,box,revision,label').in('report_id', reportIds).eq('active', true).order('id'),
     supabase.from('report_kill_credits').select('report_id,dead_insects').in('report_id', reportIds),
+    loadProfilePhotos(authorIds),
+    loadReportPhotoUrls(supabase.storage.from(bucket), rows.map(row => row.photo_path), previous),
   ]);
   if (names.error) throw names.error;
   if (votes.error) throw votes.error;
-  if (flags.error) throw flags.error;
   if (identifications.error) throw identifications.error;
   if (assessments.error) throw assessments.error;
   if (verificationVotes.error) throw verificationVotes.error;
@@ -94,12 +79,12 @@ async function decorateReports(rows: any[], viewerId: string, previous: Report[]
   const identificationById = new Map((identifications.data ?? []).map(row => [row.report_id, row as Identification]));
   const nameById = new Map((names.data ?? []).map(row => [row.user_id, row.display_name]));
   const voteById = new Map((votes.data ?? []).map(row => [row.report_id, row.value]));
-  const flagIds = new Set((flags.data ?? []).map(row => row.report_id));
-  return Promise.all(rows.map(async row => ({
-    ...row, photo_url: photos.has(row.photo_path) ? photos.get(row.photo_path)! : await loadPhoto(row.photo_path),
+  return rows.map(row => ({
+    ...row, photo_url: photos.get(row.photo_path)?.url ?? null,
+    photo_url_expires_at: photos.get(row.photo_path)?.expiresAt,
     author_name: nameById.get(row.user_id) ?? 'Field member',
+    author_photo_url: authorPhotos.get(row.user_id) ?? null,
     my_vote: (voteById.get(row.id) ?? 0) as -1 | 0 | 1,
-    my_flag: flagIds.has(row.id),
     insects: (insects.data ?? []).filter(insect => insect.report_id === row.id) as ReportInsect[],
     verified_kills: credits.data?.find(credit => credit.report_id === row.id)?.dead_insects ?? 0,
     processing: (processing.data ?? []).find(job => job.report_id === row.id) as ProcessingStatus | undefined ?? null,
@@ -107,7 +92,7 @@ async function decorateReports(rows: any[], viewerId: string, previous: Report[]
     death_assessment: assessments.data?.find(a => a.report_id === row.id
       && a.detector_updated_at === identificationById.get(row.id)?.updated_at) as DeathAssessment | undefined ?? null,
     verification_votes: (verificationVotes.data ?? []).filter(v => v.report_id === row.id) as VerificationVote[],
-  })));
+  }));
 }
 
 export async function loadReports(userId: string, previous: Report[] = []): Promise<Report[]> {
@@ -121,7 +106,7 @@ export async function loadReports(userId: string, previous: Report[] = []): Prom
 export async function loadPublicReports(viewerId: string): Promise<Report[]> {
   if (!supabase) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase.from('reports').select(fields)
-    .eq('workflow_status', 'published').order('created_at', { ascending: false }).limit(25);
+    .eq('visibility', 'public').in('workflow_status', [...communityFeedStatuses]).order('created_at', { ascending: false }).limit(25);
   if (error) throw error;
   return decorateReports(data ?? [], viewerId);
 }
@@ -144,10 +129,10 @@ export async function loadAdminReports(viewerId: string, all = false, reportId?:
   return decorateReports(data ?? [], viewerId);
 }
 
-export async function loadReportEngagement(reportId: string): Promise<Pick<Report, 'upvotes' | 'downvotes' | 'flagged_inaccurate'>> {
+export async function loadReportEngagement(reportId: string): Promise<Pick<Report, 'upvotes' | 'downvotes'>> {
   if (!supabase) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase.from('reports')
-    .select('upvotes, downvotes, flagged_inaccurate').eq('id', reportId).single();
+    .select('upvotes, downvotes').eq('id', reportId).single();
   if (error) throw error;
   return data;
 }
@@ -195,13 +180,5 @@ export async function setReportVote(reportId: string, viewerId: string, value: -
     : existing
       ? await supabase.from('report_votes').update({ value }).eq('report_id', reportId).eq('voter_id', viewerId)
       : await supabase.from('report_votes').insert({ report_id: reportId, voter_id: viewerId, value });
-  if (result.error) throw result.error;
-}
-
-export async function setReportFlag(reportId: string, viewerId: string, flagged: boolean): Promise<void> {
-  if (!supabase) throw new Error('Supabase is not configured.');
-  const result = flagged
-    ? await supabase.from('report_flags').insert({ report_id: reportId, flagger_id: viewerId })
-    : await supabase.from('report_flags').delete().eq('report_id', reportId).eq('flagger_id', viewerId);
   if (result.error) throw result.error;
 }

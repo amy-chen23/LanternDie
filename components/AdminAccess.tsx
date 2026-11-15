@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../lib/typography';
 import type { Report } from '../lib/reports';
 import { loadAdminReports } from '../lib/reports';
 import { ReportIdentification } from './ReportIdentification';
 import { AdminModeration } from './AdminModeration';
+import { PageHeader } from './PageHeader';
 
 export function AdminAccess({ userId, checkAccess, onModerated }: { userId: string; checkAccess: () => Promise<boolean>; onModerated: () => Promise<void> }) {
   const [reports, setReports] = useState<Report[]>([]);
@@ -33,7 +35,7 @@ export function AdminAccess({ userId, checkAccess, onModerated }: { userId: stri
     return () => { alive.current = false; version.current++; };
   }, [userId, all, filterId]);
   return <><ScrollView contentContainerStyle={styles.page}>
-    <Text style={styles.eyebrow}>LANTERNDIE / ADMIN</Text>
+    <PageHeader label="ADMIN" />
     <Text accessibilityRole="header" style={styles.title}>Report moderation</Text>
     <Text style={styles.note}>Review insects awaiting an alive/dead decision, missed detections, and failed photo checks. Lists show up to 10 reports; use an ID to find an older submission.</Text>
     <View style={styles.row}>
@@ -53,7 +55,6 @@ export function AdminAccess({ userId, checkAccess, onModerated }: { userId: stri
       <Text style={styles.heading}>{report.author_name}</Text>
       <Text style={styles.note}>{all || filterId ? report.workflow_status.replaceAll('_', ' ') : report.workflow_status === 'admin_review' ? 'Needs admin review' : 'Alive/dead decision needed'}</Text>
       <Text style={styles.note}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
-      {report.caption ? <Text style={styles.note}>{report.caption}</Text> : null}
       <ReportIdentification report={report} />
       <Pressable accessibilityRole="button" style={styles.button} onPress={() => setSelected(report)}><Text>Moderate report</Text></Pressable>
     </View>) : <Text style={styles.note}>No matching reports.</Text>}
@@ -63,9 +64,9 @@ export function AdminAccess({ userId, checkAccess, onModerated }: { userId: stri
   </>;
 }
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, input: { minHeight: 44, borderWidth: 1, borderColor: '#CCC', padding: 12 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, input: { borderRadius: 8, minHeight: 44, borderWidth: 1, borderColor: '#CCC', padding: 12 },
   page: { padding: 24, gap: 16, paddingBottom: 40 }, eyebrow: { color: '#666', fontSize: 10, fontWeight: '700', letterSpacing: 1.4 },
   title: { color: '#111', fontSize: 28, fontWeight: '700' }, note: { color: '#666', fontSize: 13, lineHeight: 20 },
-  heading: { color: '#111', fontWeight: '700', fontSize: 16 }, button: { minHeight: 44, padding: 12, borderWidth: 1, borderColor: '#CCC', justifyContent: 'center' },
-  card: { padding: 16, gap: 10, borderWidth: 1, borderColor: '#DDD', backgroundColor: '#FFF' }, photo: { width: '100%', height: 220 }, error: { color: '#B00020', fontSize: 13 },
+  heading: { color: '#111', fontWeight: '700', fontSize: 16 }, button: { borderRadius: 8, minHeight: 44, padding: 12, borderWidth: 1, borderColor: '#CCC', justifyContent: 'center' },
+  card: { borderRadius: 16, padding: 16, gap: 10, borderWidth: 1, borderColor: '#DDD', backgroundColor: '#FFF' }, photo: { borderRadius: 8, width: '100%', height: 220 }, error: { color: '#B00020', fontSize: 13 },
 });

@@ -1,19 +1,36 @@
-import { useState } from 'react';
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { assessReportLocally } from '../lib/death-assessment';
+import { canScoreLocally } from '../lib/death-runtime';
+import { assessmentComplete as hasAssessment, canAssessReport, currentAssessment, shouldAutoAssess } from '../lib/classification-label';
+import { classificationForBox, reportClassificationSummary } from '../lib/classification-label';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../lib/typography';
 import { identifyReport } from '../lib/identification';
 import type { Report } from '../lib/reports';
-import { reportProcessingMessage } from '../lib/report-processing';
+import { photoCheckResult } from '../lib/photo-check-result';
+
+export function identificationActionLabel(report: Report): 'Results' | 'Processing' | 'Unavailable' {
+  if (photoCheckResult(report)) return 'Results';
+  if (report.processing && ['queued', 'running', 'retry'].includes(report.processing.status)) return 'Processing';
+  if (report.processing?.status === 'failed' || report.identification?.status === 'failed') return 'Unavailable';
+  if (report.identification?.status === 'processing' || report.workflow_status === 'pending_detection') return 'Processing';
+  return report.identification || report.insects_ready || report.insects.length ? 'Results' : 'Unavailable';
+}
 
 function identificationTitle(report: Report) {
+  const photoResult = photoCheckResult(report);
+  if (photoResult) return photoResult.title;
   const result = report.identification;
-  if (report.processing && ['queued', 'running', 'retry'].includes(report.processing.status)) return 'Photo checks pending';
+  const action = identificationActionLabel(report);
+  if (action === 'Processing') return 'Photo checks pending';
+  if (action === 'Unavailable') return 'Identification unavailable';
   if (report.insects_ready || report.insects.length) return report.insects.length
-    ? `${report.insects.length} lanternfl${report.insects.length === 1 ? 'y' : 'ies'} detected` : 'No active insect boxes';
+    ? reportClassificationSummary(report) : 'No active insect boxes';
   return !result ? 'Lanternfly identification not run'
     : result.status === 'processing' ? 'Identification in progress'
     : result.status === 'failed' ? 'Identification unavailable'
     : result.status === 'not_detected' ? 'No lanternfly detected'
-    : `${result.detections.length} lanternfl${result.detections.length === 1 ? 'y' : 'ies'} detected`;
+    : reportClassificationSummary(report);
 }
 
 export function IdentificationResultsModal({ report, onClose, error }: {
@@ -23,6 +40,7 @@ export function IdentificationResultsModal({ report, onClose, error }: {
 }) {
   if (!report) return null;
   const result = report.identification;
+  const photoResult = photoCheckResult(report);
   const authoritative = report.insects_ready || report.insects.length > 0;
   const boxes = authoritative ? report.insects.map(insect => insect.box) : result?.detections ?? [];
   const hasBoxes = result && result.image_width && result.image_height;
@@ -39,7 +57,13 @@ export function IdentificationResultsModal({ report, onClose, error }: {
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={styles.dialogContent}>
-          <Text style={styles.note}>Your report is saved. Lanternfly detection and community verification are separate checks.</Text>
+          <Text style={styles.note}>Lanternfly detection and community verification are separate checks.</Text>
+          {photoResult ? <View style={styles.resultSummary}>
+            <Text style={styles.title}>{photoResult.title}</Text>
+            <Text style={styles.note}>{photoResult.explanation}</Text>
+            <Text style={styles.title}>What happens next</Text>
+            <Text style={styles.note}>{photoResult.nextSteps}</Text>
+          </View> : null}
           {report.photo_url ? <View style={{ width: '100%', aspectRatio: hasBoxes ? result.image_width! / result.image_height! : 4 / 3 }}>
             <Image source={{ uri: report.photo_url }} resizeMode={hasBoxes ? 'stretch' : 'contain'} style={StyleSheet.absoluteFill} accessibilityLabel="Submitted photo with numbered lanternfly detection boxes" />
             {hasBoxes ? boxes.map((box, index) => <View key={index} pointerEvents="none" style={[styles.box, {
@@ -48,16 +72,16 @@ export function IdentificationResultsModal({ report, onClose, error }: {
             }]}><Text style={styles.boxNumber}>{index + 1}</Text></View>) : null}
           </View> : null}
           {authoritative ? report.insects.map((insect, index) => <Text key={insect.id} style={styles.note}>
-            {index + 1}. {insect.label === 'pending' ? 'Awaiting alive/dead review' : insect.label === 'dead' ? 'Verified dead' : 'Verified alive'}
+            {index + 1}. {classificationForBox(report, insect.box, insect.label)}
           </Text>) : result?.detections.map((box, index) => <Text key={index} style={styles.note}>
-            {index + 1}. {box.label} · {Math.round(box.confidence * 100)}% detection confidence
+            {index + 1}. {classificationForBox(report, box)}
           </Text>)}
           {result?.status === 'detected' || result?.status === 'not_detected' ? <Text style={styles.note}>
             Detection threshold: {Math.round((result.confidence_threshold ?? 0) * 100)}%. This measures identification, not death.
           </Text> : null}
-          {result?.status === 'processing' ? <Text style={styles.note}>The check is still running. Refresh Recent activity to see the result.</Text> : null}
+          {identificationActionLabel(report) === 'Processing' ? <Text style={styles.note}>Photo checks are pending. Close these results and refresh the feed or report list for updates.</Text> : null}
           {error || result?.error_message ? <Text accessibilityRole="alert" style={styles.error}>{error || result?.error_message}</Text> : null}
-          {!result || result.status === 'failed' ? <Text style={styles.note}>Processing status is shown in Recent activity. Technical failures can be retried after 15 minutes.</Text> : null}
+          {(!result || result.status === 'failed') && !photoResult ? <Text style={styles.note}>Results are not available yet. For technical failures, the report owner can retry checks from My submissions after 15 minutes.</Text> : null}
         </ScrollView>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.doneButton}><Text style={styles.doneText}>Done</Text></Pressable>
       </View>
@@ -65,9 +89,10 @@ export function IdentificationResultsModal({ report, onClose, error }: {
   </Modal>;
 }
 
-export function ReportIdentification({ report, onChanged }: {
+export function ReportIdentification({ report, onChanged, actionsOnly = false }: {
   report: Report;
   onChanged?: () => Promise<void>;
+  actionsOnly?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -77,6 +102,45 @@ export function ReportIdentification({ report, onChanged }: {
     && (result?.status === 'detected' || result?.status === 'not_detected');
   const processing = result?.status === 'processing';
   const title = identificationTitle(report);
+  const photoResult = photoCheckResult(report);
+
+  const [assessing, setAssessing] = useState(false);
+  const attempted = useRef('');
+  const running = useRef('');
+  const assessmentComplete = hasAssessment(report);
+  const savedAssessment = currentAssessment(report);
+  const runtimeAvailable = canScoreLocally();
+  const canAssess = !!onChanged && canAssessReport(report);
+  const autoAssess = !!onChanged && shouldAutoAssess(report, runtimeAvailable);
+  const latest = useRef({ snapshot: '', onChanged });
+  const snapshot = `${report.id}:${result?.updated_at}`;
+  latest.current = { snapshot, onChanged };
+  async function assess() {
+    if (running.current === snapshot || !canAssess || !runtimeAvailable) return;
+    const started = snapshot;
+    running.current = started;
+    setAssessing(true);
+    setError('');
+    try {
+      const outcome = await assessReportLocally(report.id);
+      if (latest.current.snapshot !== started) return;
+      if (outcome === 'failed') setError('Photo check failed. Community review remains available.');
+      await latest.current.onChanged?.();
+    } catch {
+      if (latest.current.snapshot === started) setError('Could not finish checking this photo. Try again.');
+    } finally {
+      if (running.current === started) running.current = '';
+      if (latest.current.snapshot === started) setAssessing(false);
+    }
+  }
+  useEffect(() => { setAssessing(false); setError(''); }, [snapshot]);
+  useEffect(() => {
+    if (!autoAssess || attempted.current === snapshot) return;
+    attempted.current = snapshot;
+    // Let the report screen paint before downloading/initializing the classifier.
+    const timer = setTimeout(() => { void assess(); }, 1500);
+    return () => { clearTimeout(timer); attempted.current = ''; };
+  }, [snapshot, autoAssess]);
 
   async function retry() {
     if (busy) return;
@@ -95,18 +159,36 @@ export function ReportIdentification({ report, onChanged }: {
     }
   }
 
+  const canRetry = report.processing?.status === 'failed' && onChanged;
+  if (actionsOnly && !canRetry && !error && !photoResult && !(canAssess && !assessmentComplete)) return null;
+
   return <View style={styles.section}>
-    <Text accessibilityLiveRegion="polite" style={styles.title}>{busy ? 'Requesting retry…' : title}</Text>
-    {onChanged ? <Text style={styles.note}>{reportProcessingMessage(report.workflow_status, report.processing)}</Text> : null}
-    {result?.status === 'failed' && result.error_message ? <Text style={styles.note}>{result.error_message}</Text> : null}
-    {processing ? <Text style={styles.note}>Background processing continues after you leave this screen.</Text> : null}
+    {actionsOnly && photoResult ? <>
+      <Text style={styles.eyebrow}>RESULTS</Text>
+      <Text accessibilityLiveRegion="polite" style={styles.title}>{photoResult.title}</Text>
+      <Text style={styles.note}>{photoResult.explanation}</Text>
+      <Text style={styles.title}>What happens next</Text>
+      <Text style={styles.note}>{photoResult.nextSteps}</Text>
+    </> : null}
+    {!actionsOnly ? <>
+      <Text accessibilityLiveRegion="polite" style={styles.title}>{busy ? 'Requesting retry…' : title}</Text>
+      {report.caption ? <Text style={styles.note}>{report.caption}</Text> : null}
+      {result?.status === 'failed' && result.error_message ? <Text style={styles.note}>{result.error_message}</Text> : null}
+      {processing ? <Text style={styles.note}>Background processing continues after you leave this screen.</Text> : null}
+    </> : null}
+    {assessing ? <Text accessibilityLiveRegion="polite" style={styles.note}>Checking photo…</Text> : null}
+    {canAssess && !assessmentComplete && !runtimeAvailable ? <Text style={styles.note}>Photo checking is unavailable on this device. Community review remains available.</Text> : null}
+    {canAssess && !assessmentComplete && savedAssessment?.status === 'failed' && !error ? <Text accessibilityRole="alert" style={styles.error}>Photo check failed. Community review remains available.</Text> : null}
+    {canAssess && runtimeAvailable && !assessmentComplete && !assessing ? <Pressable accessibilityRole="button" onPress={() => void assess()} style={styles.action}>
+      <Text style={styles.link}>Retry photo check</Text>
+    </Pressable> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {report.processing?.status === 'failed' && onChanged ? <Pressable accessibilityRole="button" disabled={busy} onPress={() => void retry()} style={styles.action}>
+    {canRetry ? <Pressable accessibilityRole="button" disabled={busy} onPress={() => void retry()} style={styles.action}>
       {busy ? <ActivityIndicator color="#F72D33" /> : <Text style={styles.link}>{'Retry background checks'}</Text>}
     </Pressable> : null}
-    {complete ? <>
+    {complete && !actionsOnly ? <>
       <Pressable accessibilityRole="button" onPress={() => setExpanded(true)} style={styles.action}>
-        <Text style={styles.link}>View identification results</Text>
+        <Text style={styles.link}>View photo results</Text>
       </Pressable>
       <IdentificationResultsModal report={expanded ? report : null} onClose={() => setExpanded(false)} />
     </> : null}
@@ -115,7 +197,7 @@ export function ReportIdentification({ report, onChanged }: {
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.55)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  dialog: { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: '#FFFFFF', borderRadius: 12, overflow: 'hidden', flexShrink: 1 },
+  dialog: { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: '#FFFFFF', borderRadius: 16, overflow: 'hidden', flexShrink: 1 },
   dialogHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 20, borderBottomWidth: 1, borderBottomColor: '#E2E2E2' },
   headingCopy: { flex: 1, gap: 6 },
   eyebrow: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: '#696969' },
@@ -126,6 +208,7 @@ const styles = StyleSheet.create({
   doneButton: { minHeight: 48, margin: 20, marginTop: 8, backgroundColor: '#F72D33', alignItems: 'center', justifyContent: 'center', borderRadius: 6 },
   doneText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
   section: { padding: 12, gap: 6, borderTopWidth: 1, borderTopColor: '#E2E2E2' },
+  resultSummary: { padding: 12, gap: 8, backgroundColor: '#F5F5F5', borderRadius: 10 },
   title: { fontSize: 13, fontWeight: '700', color: '#111111' },
   note: { fontSize: 12, lineHeight: 18, color: '#696969' },
   error: { fontSize: 12, color: '#F72D33' },

@@ -24,32 +24,37 @@ function blobBytes(blob: Blob): Promise<Uint8Array> {
   });
 }
 
-const inFlight = new Map<string, Promise<void>>();
-export function assessReportLocally(reportId: string): Promise<void> {
+export type AssessmentOutcome = 'complete' | 'unavailable' | 'failed' | 'skipped';
+const inFlight = new Map<string, Promise<AssessmentOutcome>>();
+let assessmentQueue: Promise<unknown> = Promise.resolve();
+export function assessReportLocally(reportId: string): Promise<AssessmentOutcome> {
   const existing = inFlight.get(reportId);
   if (existing) return existing;
-  const task = assess(reportId).finally(() => inFlight.delete(reportId));
+  // Bound photo downloads and model work on phones, even with many report cards.
+  const task = assessmentQueue.then(() => assess(reportId)).finally(() => inFlight.delete(reportId));
+  assessmentQueue = task.catch(() => {});
   inFlight.set(reportId, task);
   return task;
 }
 
-async function assess(reportId: string) {
+async function assess(reportId: string): Promise<AssessmentOutcome> {
   if (!supabase) throw new Error('Supabase is not configured.');
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Sign in to assess a report.');
   const [report, identification] = await Promise.all([
-    supabase.from('reports').select('photo_path').eq('id', reportId).eq('user_id', user.id).maybeSingle(),
+    supabase.from('reports').select('photo_path,workflow_status').eq('id', reportId).eq('user_id', user.id).maybeSingle(),
     supabase.from('report_identifications').select('*').eq('report_id', reportId).maybeSingle(),
   ]);
   if (report.error || identification.error || !report.data) throw new Error('Could not load saved report.');
   const gate = identification.data as Identification | null;
-  if (!gate || gate.status !== 'detected' || !gate.detections.length) return;
+  if (report.data.workflow_status === 'rejected' || !gate || gate.status !== 'detected' || !gate.detections.length) return 'skipped';
   const previous = await supabase.from('report_death_assessments').select('status')
     .eq('report_id', reportId).eq('detector_updated_at', gate.updated_at).eq('model_sha256', policy.modelSha256).maybeSingle();
   if (previous.error) throw new Error('Could not load alive/dead assessment.');
-  if (previous.data?.status === 'complete') return;
+  if (previous.data?.status === 'complete') return 'complete';
   let scores: number[] = [];
-  let status = 'complete', errorCode: string | null = null;
+  let status: Exclude<AssessmentOutcome, 'skipped'> = 'complete';
+  let errorCode: string | null = null;
   try {
     if (!canScoreLocally()) throw new Error('native_build_required');
     if (!gate.image_width || !gate.image_height) throw new Error('invalid_gate_dimensions');
@@ -67,6 +72,7 @@ async function assess(reportId: string) {
     p_model_sha256: policy.modelSha256, p_status: status, p_scores: scores, p_error_code: errorCode,
   });
   if (error) throw new Error('Report saved, but the alive/dead result could not be saved. Retry the assessment.');
+  return status;
 }
 
 export async function setVerificationVote(reportId: string, detectorUpdatedAt: string, index: number, label: VerificationLabel | null) {

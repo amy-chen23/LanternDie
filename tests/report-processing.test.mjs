@@ -9,7 +9,7 @@ test('duplicate and rejected reports never display a pending approval message', 
 test('technical retries and manual review have different in-app statuses', () => {
   assert.match(reportProcessingMessage('pending_detection', { status: 'retry' }), /automatically/i);
   assert.match(reportProcessingMessage('admin_review', { status: 'complete' }), /admin/i);
-  assert.match(reportProcessingMessage('pending_review', { status: 'complete' }), /every insect/i);
+  assert.match(reportProcessingMessage('pending_review', { status: 'complete' }), /alive\/dead review from admins/i);
   assert.match(reportProcessingMessage('published', { status: 'complete' }), /published/i);
 });
 test('poll only while durable background work remains', () => {

@@ -1,5 +1,13 @@
 import { supabase } from './supabase';
 import type { ReviewInsect, ReviewLabel } from './community-review';
+import type { InsectVoteSummary } from './community-votes';
+
+export async function loadReportVoteSummary(reportId: string): Promise<InsectVoteSummary[]> {
+  if (!supabase) throw new Error('Sign in to view community votes.');
+  const { data, error } = await supabase.rpc('get_report_vote_summary', { p_report_id: reportId });
+  if (error || !Array.isArray(data)) throw new Error('Community votes could not load. Please retry.');
+  return data as InsectVoteSummary[];
+}
 
 export async function loadReportReview(reportId: string, claim = false): Promise<ReviewInsect[]> {
   if (!supabase) throw new Error('Sign in to review reports.');
@@ -18,4 +26,13 @@ export async function releaseReportReview(reportId: string) {
   if (!supabase) return;
   const { error } = await supabase.rpc('release_report_review', { p_report_id: reportId });
   if (error) throw new Error('Could not release your review seats. They will expire automatically.');
+}
+
+/** Check only visible Explore posts; do not reserve seats or depend on queue pagination. */
+export async function loadReviewableReportIds(reportIds: string[]): Promise<string[]> {
+  if (!supabase || !reportIds.length) return [];
+  const ids = [...new Set(reportIds)];
+  const { data, error } = await supabase.from('report_verification_queue').select('id').in('id', ids);
+  if (error || !Array.isArray(data)) throw new Error('Review prompts could not load. Refresh the feed to try again.');
+  return data.map(row => row.id).filter(id => typeof id === 'string' && ids.includes(id));
 }

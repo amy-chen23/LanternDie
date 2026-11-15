@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../lib/typography';
 import type { Report } from '../lib/reports';
 import { loadModeration, moderateReport } from '../lib/moderation';
 import type { AdminInsect, AuditEvent, ModerationAction, ModerationSnapshot } from '../lib/moderation';
@@ -152,13 +153,13 @@ export function AdminModeration({ report, checkAccess, onChanged, onClose }: {
 }
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-  dialog: { width: '100%', maxWidth: 760, maxHeight: '94%', backgroundColor: '#FFF', borderRadius: 10, overflow: 'hidden', flexShrink: 1 },
+  dialog: { width: '100%', maxWidth: 760, maxHeight: '94%', backgroundColor: '#FFF', borderRadius: 16, overflow: 'hidden', flexShrink: 1 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderColor: '#DDD' },
   title: { fontSize: 22, fontWeight: '700' }, content: { padding: 16, gap: 14 }, heading: { fontSize: 14, fontWeight: '700', color: '#111' },
   note: { fontSize: 12, lineHeight: 19, color: '#666' }, row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  button: { minHeight: 44, padding: 10, borderWidth: 1, borderColor: '#CCC', justifyContent: 'center' },
-  input: { minHeight: 80, padding: 12, borderWidth: 1, borderColor: '#AAA', color: '#111' },
-  card: { padding: 12, gap: 8, borderWidth: 1, borderColor: '#DDD' }, confirmation: { borderWidth: 2, borderColor: '#F72D33', padding: 14, gap: 12 },
+  button: { borderRadius: 8, minHeight: 44, padding: 10, borderWidth: 1, borderColor: '#CCC', justifyContent: 'center' },
+  input: { borderRadius: 8, minHeight: 80, padding: 12, borderWidth: 1, borderColor: '#AAA', color: '#111' },
+  card: { borderRadius: 16, padding: 12, gap: 8, borderWidth: 1, borderColor: '#DDD' }, confirmation: { borderRadius: 16, borderWidth: 2, borderColor: '#F72D33', padding: 14, gap: 12 },
   audit: { gap: 5, paddingVertical: 10, borderBottomWidth: 1, borderColor: '#EEE' }, error: { color: '#B00020', fontSize: 13, lineHeight: 20 },
   box: { position: 'absolute', borderWidth: 2, borderColor: '#F72D33' }, number: { backgroundColor: '#111', color: '#FFF', fontSize: 12, paddingHorizontal: 4, alignSelf: 'flex-start' },
 });

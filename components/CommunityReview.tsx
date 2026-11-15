@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../lib/typography';
 import type { Report } from '../lib/reports';
 import { loadReportReview, releaseReportReview, saveInsectReview } from '../lib/reviews';
+import { classificationLabel } from '../lib/classification-label';
 import { reviewActionMessage, reviewFinished } from '../lib/community-review';
 import type { ReviewInsect, ReviewLabel } from '../lib/community-review';
 
@@ -84,21 +86,18 @@ export function CommunityReview({ report, onClose, onChanged }: {
           }]}><Text style={styles.number}>{index + 1}</Text></View>)}
         </View> : <Text style={styles.error}>Photo unavailable. Please close this review and try again later.</Text>}
         {loading ? <ActivityIndicator /> : insects.map((insect, index) => <View key={`${insect.insect_id}:${insect.revision}`} style={styles.insect}>
-          <Text style={styles.heading}>Insect {index + 1}</Text>
+          <Text style={styles.heading}>Insect {index + 1}: {classificationLabel(insect.final_label)}</Text>
           <Text style={styles.note}>{reviewActionMessage(insect)}</Text>
           {!insect.final_label && insect.can_vote ? <View style={styles.row}>
             {(['alive', 'dead', 'uncertain'] as const).map(label => <Pressable key={label} accessibilityRole="button"
               accessibilityLabel={`Insect ${index + 1}: ${label}`} accessibilityState={{ selected: insect.my_vote === label }}
               disabled={busy || !photoReady} onPress={() => void vote(insect, label)} style={[styles.button, insect.my_vote === label && styles.selected]}>
-              <Text>{label === 'alive' ? 'Alive' : label === 'dead' ? 'Dead' : 'Uncertain'}</Text>
+              <Text>{label.toUpperCase()}</Text>
             </Pressable>)}
           </View> : null}
           {!insect.final_label && insect.my_vote ? <Pressable accessibilityRole="button" disabled={busy} style={styles.button}
             onPress={() => void vote(insect, null)}><Text>Remove my label for insect {index + 1}</Text></Pressable> : null}
-          {insect.feedback ? <Text style={styles.note}>
-            Review labels: {insect.feedback.alive_votes} alive · {insect.feedback.dead_votes} dead · {insect.feedback.uncertain_votes} uncertain
-            {insect.feedback.model_score !== null ? ` · experimental model score ${insect.feedback.model_score.toFixed(3)}` : ''}
-          </Text> : null}
+
         </View>)}
         {!loading && !insects.length ? <Text style={styles.note}>No insects are available for review.</Text> : null}
         {reviewFinished(insects) ? <Text accessibilityLiveRegion="polite" style={styles.heading}>Every insect has a final decision. Thank you for reviewing.</Text> : null}
@@ -111,12 +110,12 @@ export function CommunityReview({ report, onClose, onChanged }: {
 }
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  dialog: { width: '100%', maxWidth: 620, maxHeight: '90%', backgroundColor: '#FFF', borderRadius: 12, flexShrink: 1, overflow: 'hidden' },
+  dialog: { width: '100%', maxWidth: 620, maxHeight: '90%', backgroundColor: '#FFF', borderRadius: 16, flexShrink: 1, overflow: 'hidden' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderColor: '#DDD' },
   title: { fontSize: 24, fontWeight: '700', color: '#111' }, heading: { fontSize: 15, fontWeight: '700', color: '#111' },
   content: { padding: 16, gap: 14 }, note: { color: '#626262', fontSize: 13, lineHeight: 20 },
   insect: { gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderColor: '#DDD' }, row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  button: { minHeight: 44, padding: 12, borderWidth: 1, borderColor: '#CCC', borderRadius: 5, justifyContent: 'center' },
+  button: { borderRadius: 8, minHeight: 44, padding: 12, borderWidth: 1, borderColor: '#CCC', justifyContent: 'center' },
   selected: { borderColor: '#F72D33', backgroundColor: '#FFF0F0' }, error: { color: '#B00020', fontSize: 13, lineHeight: 20 },
   box: { position: 'absolute', borderWidth: 2, borderColor: '#F72D33' }, number: { alignSelf: 'flex-start', color: '#FFF', backgroundColor: '#111', paddingHorizontal: 4, fontSize: 13 },
 });

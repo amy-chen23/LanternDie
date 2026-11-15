@@ -1,0 +1,334 @@
+{
+  "date": "2026-11-14",
+  "branch": "report-overhaul",
+  "head": "afb8d14",
+  "scope": "Local release regression; read-only hosted metadata. No release, migration or live workflow writes.",
+  "node": "22.16.0",
+  "unitTestsPassed": 109,
+  "pythonTestsPassed": 13,
+  "sqlSuitesPassed": 13,
+  "sqlPostgresVersion": 18,
+  "sqlConcurrencyPassed": true,
+  "typecheckPassed": true,
+  "productionBuildPassed": true,
+  "cleanInstallChecks": [
+    {
+      "name": "clean-install",
+      "passed": true,
+      "wallMs": 6345
+    },
+    {
+      "name": "clean-units",
+      "passed": true,
+      "wallMs": 526
+    },
+    {
+      "name": "clean-types",
+      "passed": true,
+      "wallMs": 2265
+    },
+    {
+      "name": "clean-web-build",
+      "passed": true,
+      "wallMs": 1663
+    }
+  ],
+  "browser": {
+    "expected": 62,
+    "unexpected": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "durationMs": 106137.072,
+    "projects": [
+      "chromium-desktop",
+      "chromium-phone",
+      "webkit-phone",
+      "firefox-desktop"
+    ]
+  },
+  "developmentUiTestsPassed": 5,
+  "edgeFunctionTypecheckPassed": true,
+  "checkpointParity": {
+    "checkpoint_sha256": "99c557bad5862504641bd09284ef1ec3b50fb885ca1b5f40ea13a2cc0994bd85",
+    "model_sha256": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d",
+    "pytorch_version": "2.15.0",
+    "onnxruntime_version": "1.32.0",
+    "images_checked": 83,
+    "max_absolute_error_bundled": 2.205371856689453e-06,
+    "max_absolute_error_fresh_export": 2.205371856689453e-06,
+    "threshold": 0.98,
+    "threshold_decision_mismatches": 0
+  },
+  "identicalTensorParity": {
+    "kind": "identical-jpeg-js-prepared-tensors-node-versus-original-pytorch",
+    "checkpoint_sha256": "99c557bad5862504641bd09284ef1ec3b50fb885ca1b5f40ea13a2cc0994bd85",
+    "model_sha256": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d",
+    "pytorch_version": "2.15.0",
+    "comparisons": [
+      {
+        "file": "above.jpg-full",
+        "pytorch_identical_tensor": 0.9997138381004333,
+        "node_onnx": 0.9997138381004333,
+        "absolute_error": 0.0
+      },
+      {
+        "file": "above.jpg-center",
+        "pytorch_identical_tensor": 0.9795921444892883,
+        "node_onnx": 0.9795925617218018,
+        "absolute_error": 4.172325134277344e-07
+      },
+      {
+        "file": "below.jpg-full",
+        "pytorch_identical_tensor": 0.002273330930620432,
+        "node_onnx": 0.002273350954055786,
+        "absolute_error": 2.0023435354232788e-08
+      },
+      {
+        "file": "below.jpg-center",
+        "pytorch_identical_tensor": 0.038097187876701355,
+        "node_onnx": 0.03809696435928345,
+        "absolute_error": 2.2351741790771484e-07
+      }
+    ],
+    "max_absolute_error": 4.172325134277344e-07,
+    "legacy_threshold_decision_mismatches": 0
+  },
+  "browserNativeParity": [
+    {
+      "kind": "actual chromium production worker versus local native proof",
+      "project": "chromium-desktop",
+      "modelSha256": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d",
+      "comparisons": [
+        {
+          "key": "above.jpg-full",
+          "native": 0.9997138381004333,
+          "browser": 0.9997137784957886,
+          "absoluteError": 5.960464477539063e-08
+        },
+        {
+          "key": "above.jpg-center",
+          "native": 0.9795925617218018,
+          "browser": 0.9795922040939331,
+          "absoluteError": 3.5762786865234375e-07
+        },
+        {
+          "key": "below.jpg-full",
+          "native": 0.002273350954055786,
+          "browser": 0.0022733211517333984,
+          "absoluteError": 2.9802322387695312e-08
+        },
+        {
+          "key": "below.jpg-center",
+          "native": 0.03809696435928345,
+          "browser": 0.038097232580184937,
+          "absoluteError": 2.682209014892578e-07
+        }
+      ],
+      "maxAbsoluteError": 3.5762786865234375e-07,
+      "legacyThresholdDecisionMismatches": 0
+    },
+    {
+      "kind": "actual chromium production worker versus local native proof",
+      "project": "chromium-phone",
+      "modelSha256": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d",
+      "comparisons": [
+        {
+          "key": "above.jpg-full",
+          "native": 0.9997138381004333,
+          "browser": 0.9997137784957886,
+          "absoluteError": 5.960464477539063e-08
+        },
+        {
+          "key": "above.jpg-center",
+          "native": 0.9795925617218018,
+          "browser": 0.9795922040939331,
+          "absoluteError": 3.5762786865234375e-07
+        },
+        {
+          "key": "below.jpg-full",
+          "native": 0.002273350954055786,
+          "browser": 0.0022733211517333984,
+          "absoluteError": 2.9802322387695312e-08
+        },
+        {
+          "key": "below.jpg-center",
+          "native": 0.03809696435928345,
+          "browser": 0.038097232580184937,
+          "absoluteError": 2.682209014892578e-07
+        }
+      ],
+      "maxAbsoluteError": 3.5762786865234375e-07,
+      "legacyThresholdDecisionMismatches": 0
+    },
+    {
+      "kind": "actual webkit production worker versus local native proof",
+      "project": "webkit-phone",
+      "modelSha256": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d",
+      "comparisons": [
+        {
+          "key": "above.jpg-full",
+          "native": 0.9997138381004333,
+          "browser": 0.9997137784957886,
+          "absoluteError": 5.960464477539063e-08
+        },
+        {
+          "key": "above.jpg-center",
+          "native": 0.9795925617218018,
+          "browser": 0.9795922040939331,
+          "absoluteError": 3.5762786865234375e-07
+        },
+        {
+          "key": "below.jpg-full",
+          "native": 0.002273350954055786,
+          "browser": 0.0022733211517333984,
+          "absoluteError": 2.9802322387695312e-08
+        },
+        {
+          "key": "below.jpg-center",
+          "native": 0.03809696435928345,
+          "browser": 0.038097232580184937,
+          "absoluteError": 2.682209014892578e-07
+        }
+      ],
+      "maxAbsoluteError": 3.5762786865234375e-07,
+      "legacyThresholdDecisionMismatches": 0
+    },
+    {
+      "kind": "actual firefox production worker versus local native proof",
+      "project": "firefox-desktop",
+      "modelSha256": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d",
+      "comparisons": [
+        {
+          "key": "above.jpg-full",
+          "native": 0.9997138381004333,
+          "browser": 0.9997137784957886,
+          "absoluteError": 5.960464477539063e-08
+        },
+        {
+          "key": "above.jpg-center",
+          "native": 0.9795925617218018,
+          "browser": 0.9795922040939331,
+          "absoluteError": 3.5762786865234375e-07
+        },
+        {
+          "key": "below.jpg-full",
+          "native": 0.002273350954055786,
+          "browser": 0.0022733211517333984,
+          "absoluteError": 2.9802322387695312e-08
+        },
+        {
+          "key": "below.jpg-center",
+          "native": 0.03809696435928345,
+          "browser": 0.038097232580184937,
+          "absoluteError": 2.682209014892578e-07
+        }
+      ],
+      "maxAbsoluteError": 3.5762786865234375e-07,
+      "legacyThresholdDecisionMismatches": 0
+    }
+  ],
+  "packagedProof": {
+    "kind": "LOCAL macOS packaged Node handler; stubbed Auth/Storage; real PostgreSQL; NOT hosted Vercel",
+    "node": "v22.16.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "modelSha256": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d",
+    "packageImportMs": 4.850999999999885,
+    "firstActualInferenceRequestMs": 278.326959,
+    "replayMs": 65.875583,
+    "warmUncachedRequests": 12,
+    "warmP50Ms": 143.5138750000001,
+    "warmP95Ms": 151.33887500000037,
+    "stress1600SquareRequestMs": 323.739458,
+    "rssBytes": 287703040,
+    "maxRssKiB": 296352,
+    "numerical": [
+      {
+        "file": "above.jpg",
+        "score": 0.9997138381004333,
+        "m1Native": 0.9997138381004333,
+        "absoluteDifference": 0
+      },
+      {
+        "file": "below.jpg",
+        "score": 0.002273350954055786,
+        "m1Native": 0.002273350954055786,
+        "absoluteDifference": 0
+      }
+    ],
+    "authChecks": 25,
+    "downloads": 18,
+    "saveAttempts": 18,
+    "identicalConcurrency": 4,
+    "crossInstanceConcurrency": 2,
+    "persistence": "real M1 RPC; single winner; snapshots unchanged for reports/insects/votes/live credits/shadow states/decisions/credit accounts/events",
+    "hostedExecutionVerified": false
+  },
+  "assets": {
+    "modelHashes": {
+      "confidence-training/_work/model/classifier.pt": "99c557bad5862504641bd09284ef1ec3b50fb885ca1b5f40ea13a2cc0994bd85",
+      "assets/models/lanternfly-dead.onnx": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d",
+      "dist/inference/lanternfly-dead.onnx": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d"
+    },
+    "appJsBytes": [
+      1090733
+    ],
+    "exportBytes": 37937570,
+    "inferenceAssets": {
+      "lanternfly-dead.onnx": 4142697,
+      "README-onnxruntime.md": 5284,
+      "version.json": 82,
+      "ort-wasm-simd-threaded.wasm": 12361745,
+      "ort-wasm-simd-threaded.mjs": 24274,
+      "death-worker.js": 99328
+    }
+  },
+  "sourceScan": {
+    "secretPatternFindings": [],
+    "accidentalArtifacts": [],
+    "privateEnvValuesChecked": 1,
+    "sourceAndExportFilesChecked": 251,
+    "matchingFiles": []
+  },
+  "dependencyAudit": {
+    "scope": "root npm audit --omit=dev",
+    "moderate": 4,
+    "high": 0,
+    "critical": 0,
+    "packages": [
+      "@expo/cli",
+      "@expo/fingerprint",
+      "glob",
+      "minimatch"
+    ],
+    "upgradeApplied": false
+  },
+  "hosted": {
+    "databaseVersion": "17.11",
+    "registeredModels": [
+      {
+        "preprocessing_version": "padded-rgb-pillow-bilinear-v1",
+        "sha256": "57306c1814b9b173996d6650854e0ff0df9346381e2d5c3b852fe13f5091948d",
+        "threshold": 0.98,
+        "version": "lanternfly-dead-v1"
+      }
+    ],
+    "unappliedMigrations": [
+      "20261113183128",
+      "20261116000000",
+      "20261117000000",
+      "20261118000000"
+    ],
+    "executionValidated": false
+  },
+  "unverified": [
+    "physical native devices/custom app build",
+    "real hosted multi-account upload/review/credit workflow",
+    "Vercel project/Preview protection and hosted Linux inference"
+  ],
+  "releaseBlockers": [
+    "Detection-first feed client/RLS mismatch remains unresolved.",
+    "Main community profile-photo migration remains unapplied.",
+    "Hosted shadow proof still requires separate schema and Preview approvals."
+  ]
+}

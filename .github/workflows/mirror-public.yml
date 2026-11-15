@@ -3,7 +3,7 @@ name: Mirror to public repository
 on:
   push:
     branches:
-      - main
+      - '**'
   workflow_dispatch:
   # Retry after missed runs or credential changes.
   schedule:
@@ -26,8 +26,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Mirror main
+      - name: Mirror all branches
         env:
+          SOURCE_REPO_TOKEN: ${{ github.token }}
           PUBLIC_REPO_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
         run: |
           set -eu
@@ -42,11 +43,18 @@ jobs:
           #!/bin/sh
           case "$1" in
             *Username*) printf '%s\n' x-access-token ;;
-            *Password*) printf '%s\n' "$PUBLIC_REPO_TOKEN" ;;
+            *Password*) printf '%s\n' "$GIT_AUTH_TOKEN" ;;
           esac
           EOF
           chmod 700 "$askpass"
           export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
 
-          git push https://github.com/amy-chen23/LanternDie.git \
-            '+refs/remotes/origin/main:refs/heads/main'
+          # Fetch current branch tips even when this run was queued for an older commit.
+          # A separate namespace excludes checkout's local branch and origin/HEAD.
+          GIT_AUTH_TOKEN="$SOURCE_REPO_TOKEN" git fetch --prune --no-tags origin \
+            '+refs/heads/*:refs/public-mirror/*'
+
+          # Match branch creation, force-pushes, and deletions in the source repository.
+          GIT_AUTH_TOKEN="$PUBLIC_REPO_TOKEN" git push --prune \
+            https://github.com/amy-chen23/LanternDie.git \
+            '+refs/public-mirror/*:refs/heads/*'
