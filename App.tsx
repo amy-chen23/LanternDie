@@ -25,7 +25,6 @@ import Check from 'lucide-react-native/icons/check';
 import ChevronDown from 'lucide-react-native/icons/chevron-down';
 import CircleHelp from 'lucide-react-native/icons/circle-question-mark';
 import Ellipsis from 'lucide-react-native/icons/ellipsis';
-import Flag from 'lucide-react-native/icons/flag';
 import House from 'lucide-react-native/icons/house';
 import ListFilter from 'lucide-react-native/icons/list-filter';
 import Pencil from 'lucide-react-native/icons/pencil';
@@ -36,7 +35,7 @@ import Trash2 from 'lucide-react-native/icons/trash';
 import Trophy from 'lucide-react-native/icons/trophy';
 import UserRound from 'lucide-react-native/icons/user-round';
 import { deleteOwnedReport } from './lib/report-deletion';
-import { loadReports, loadPublicReports, loadVerificationReports, loadReportEngagement, setReportFlag, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
+import { loadReports, loadPublicReports, loadVerificationReports, loadReportEngagement, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
 import { matchesSubmissionFilter, submissionStatusLabel, type SubmissionFilter } from './lib/submission-filters';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { loadLeaderboard, type LeaderboardEntry, type LeaderboardPeriod } from './lib/leaderboard';
@@ -49,7 +48,8 @@ import { loadReviewableReportIds } from './lib/reviews';
 import { PageHeader } from './components/PageHeader';
 import { AdminAccess } from './components/AdminAccess';
 import { CommunityApproval } from './components/CommunityApproval';
-import { communityApproval, communityTone } from './lib/community-feed';
+import { communityApproval, confirmedInsectCounts } from './lib/community-feed';
+import { CommunityVotes } from './components/CommunityVotes';
 import { reportClassificationSummary } from './lib/classification-label';
 import { PublicationCelebration } from './components/PublicationCelebration';
 import { usePublicationCelebration } from './hooks/usePublicationCelebration';
@@ -470,38 +470,6 @@ export default function App() {
     }
   }
 
-  async function changeFlag(report: Report) {
-    if (!session || communityActionInFlight.current) return;
-    const setEngagementError = sightingsView === 'mine' ? setSubmissionActionError : setCommunityError;
-    communityActionInFlight.current = true;
-    const userId = session.user.id;
-    const nextFlag = !report.my_flag;
-    setCommunityBusyId(report.id);
-    setEngagementError('');
-    updateEngagementReports(current => current.map(item => item.id === report.id ? {
-      ...item, my_flag: nextFlag, flagged_inaccurate: nextFlag || item.flagged_inaccurate,
-    } : item));
-    try {
-      await setReportFlag(report.id, userId, nextFlag);
-      try {
-        const engagement = await loadReportEngagement(report.id);
-        if (activeUserId.current === userId) updateEngagementReports(current => current.map(item => item.id === report.id ? { ...item, ...engagement } : item));
-      } catch {
-        if (activeUserId.current === userId) setEngagementError('Flag saved, but status could not be refreshed. Refresh the feed to sync.');
-      }
-    } catch (error) {
-      if (activeUserId.current === userId) {
-        updateEngagementReports(current => current.map(item => item.id === report.id && item.my_flag === nextFlag ? {
-          ...item, my_flag: report.my_flag, flagged_inaccurate: report.flagged_inaccurate,
-        } : item));
-        setEngagementError(error instanceof Error ? error.message : 'Could not save flag.');
-      }
-    } finally {
-      communityActionInFlight.current = false;
-      setCommunityBusyId(null);
-    }
-  }
-
   async function chooseProfilePhoto() {
     if (!session || savingProfilePhoto) return;
     const userId = session.user.id;
@@ -617,8 +585,7 @@ export default function App() {
                 await refreshReports(session?.user.id, true);
                 if (sightingsView !== 'mine') await refreshSightingsFeed(sightingsView, session?.user.id, true);
               }}
-              onRefresh={refreshActiveSightings} onVote={(report, value) => void changeVote(report, value)}
-              onFlag={(report) => void changeFlag(report)} />
+              onRefresh={refreshActiveSightings} onVote={(report, value) => void changeVote(report, value)} />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen previewMode={previewMode} />
           ) : screen === 'admin' && adminRole.isAdmin && session ? (
@@ -1082,14 +1049,14 @@ const submissionGuidance: Record<SubmissionFilter, { title: string; descriptions
 
 function CommunityScreen({ previewMode, reports, myReports, verificationReports, exploreReviewIds, view, onChangeView,
   submissionFilter, onChangeSubmissionFilter, loading, error, actionError, busyId, userId, onRefresh,
-  onVote, onFlag, editingReportId, editingDetails, onChangeEditingDetails,
+  onVote, editingReportId, editingDetails, onChangeEditingDetails,
   savingReport, deletingReportId, onDeleteReport, onEditReport, onSaveEditedReport, onCancelEdit, onIdentificationChanged,
 }: {
   previewMode: boolean; reports: Report[]; myReports: Report[]; verificationReports: Report[]; exploreReviewIds: string[];
   view: SightingsView; onChangeView: (view: SightingsView) => void;
   submissionFilter: SubmissionFilter; onChangeSubmissionFilter: (filter: SubmissionFilter) => void;
   loading: boolean; error: string; actionError: string; busyId: string | null; userId: string | null;
-  onRefresh: (quiet?: boolean) => Promise<void>; onVote: (report: Report, value: -1 | 1) => void; onFlag: (report: Report) => void;
+  onRefresh: (quiet?: boolean) => Promise<void>; onVote: (report: Report, value: -1 | 1) => void;
   editingReportId: string | null; editingDetails: ReportDetails;
   onChangeEditingDetails: (details: ReportDetails) => void; savingReport: boolean; deletingReportId: string | null;
   onDeleteReport: (report: Report) => Promise<void>; onEditReport: (report: Report) => void;
@@ -1107,6 +1074,11 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
     }, 30_000);
     return () => clearInterval(timer);
   }, [previewMode]);
+  const [voteResultsVersion, setVoteResultsVersion] = useState(0);
+  async function refreshReviewResults(quiet = false) {
+    setVoteResultsVersion(value => value + 1);
+    await onRefresh(quiet);
+  }
   const [reviewReport, setReviewReport] = useState<Report | null>(null);
   const [resultsReport, setResultsReport] = useState<Report | null>(null);
   const [menuReportId, setMenuReportId] = useState<string | null>(null);
@@ -1198,7 +1170,7 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
         onPress={() => setStatusMenuOpen(false)} style={styles.statusFilterBackdrop} /> : null}
       {actionError ? <Text accessibilityRole="alert" style={styles.formMessage}>{actionError}</Text> : null}
       {error ? <Text accessibilityRole="alert" style={styles.formMessage}>{error}</Text> : null}
-      {loading ? <ActivityIndicator color={palette.red} /> : displayed.map(report => <View key={report.id} style={[styles.communityCard, communityTone(report) === 'rejected' ? styles.communityRejectedCard : communityTone(report) === 'dead' ? styles.communityDeadCard : styles.communityYellowCard]}>
+      {loading ? <ActivityIndicator color={palette.red} /> : displayed.map(report => <View key={report.id} style={styles.communityCard}>
         <View style={styles.sightingAuthorRow}>
           <View style={styles.reportCopy}><CommunityAuthor report={report} /></View>
           {!previewMode && report.user_id === userId ? <Pressable accessibilityRole="button" accessibilityLabel="Submission options"
@@ -1215,12 +1187,11 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
             onPress={() => verificationOnly ? setReviewReport(report) : setResultsReport(report)} />
         </View> : <CommunityResultsButton report={report} review={verificationOnly}
             onPress={() => verificationOnly ? setReviewReport(report) : setResultsReport(report)} />}
-        <CommunityApproval status={communityApproval(report)} tone={communityTone(report)} />
+        <CommunityApproval status={communityApproval(report)} counts={confirmedInsectCounts(report)} />
         {report.insects.length || report.identification?.status === 'detected' || report.identification?.status === 'not_detected' ? <Text style={styles.emptyActivityTitle}>{reportClassificationSummary(report)}</Text> : null}
         {report.caption ? <Text style={styles.communityCaption}>{report.caption}</Text> : null}
         <Text style={styles.sightingStatus}>{submissionStatusLabel(report.workflow_status)}</Text>
         <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
-        {report.flagged_inaccurate ? <Text style={styles.flagBadge}>Flagged for inaccuracy</Text> : null}
         {report.user_id === userId ? <ReportIdentification report={report} onChanged={onIdentificationChanged} actionsOnly /> : null}
         {editingReportId === report.id ? <View style={styles.editPanel}>
           <ReportFields details={editingDetails} onChange={onChangeEditingDetails} />
@@ -1258,7 +1229,9 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
 
         {!previewMode && view === 'explore' && userId && report.user_id !== userId ? <InlineCommunityReview
           report={report} viewerId={userId} eligible={exploreReviewIds.includes(report.id)}
-          onChanged={() => onRefresh(true)} onOpenPhoto={() => setReviewReport(report)} /> : null}
+          onChanged={() => refreshReviewResults(true)} onOpenPhoto={() => setReviewReport(report)} /> : null}
+        {!previewMode && userId && report.workflow_status !== 'rejected' && report.insects_ready && report.insects.length > 0 ? <CommunityVotes
+          key={`${userId}:${report.id}`} report={report} viewerId={userId} refreshVersion={voteResultsVersion} /> : null}
         {report.workflow_status === 'published' ? <View style={styles.actionRow}>
           <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
             disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
@@ -1270,11 +1243,6 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
             <Text style={report.my_vote === -1 ? styles.voteArrowSelected : styles.voteArrow}>↓</Text>
           </Pressable>
         </View> : null}
-        {report.workflow_status === 'published' && report.user_id !== userId ? <Pressable accessibilityRole="button" accessibilityLabel={report.my_flag ? 'Remove inaccuracy flag' : 'Flag as inaccurate'}
-          disabled={Boolean(busyId)} onPress={() => onFlag(report)} style={styles.flagAction}>
-          <Flag color={palette.red} size={14} strokeWidth={2} />
-          <Text style={report.my_flag ? styles.actionSelected : styles.refreshText}>{report.my_flag ? 'Unflag inaccuracy' : 'Flag inaccuracy'}</Text>
-        </Pressable> : null}
       </View>)}
       {!loading && !error && !displayed.length ? <View style={styles.communityEmpty}>
         <View style={styles.communityEmptyMark}><Text style={styles.communityEmptyGlyph}>+</Text></View>
@@ -1305,7 +1273,7 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
       </View>
     </Modal> : null}
     {reviewReport ? <CommunityReview key={reviewReport.id} report={reviewReport}
-      onClose={() => { setReviewReport(null); void onRefresh(); }} onChanged={onRefresh} /> : null}
+      onClose={() => { setReviewReport(null); void refreshReviewResults(); }} onChanged={refreshReviewResults} /> : null}
   </>);
 }
 
@@ -1836,9 +1804,6 @@ const styles = StyleSheet.create({
   feedReloadButton: { width: 44, height: 44, borderRadius: 10, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.paper, alignItems: 'center', justifyContent: 'center' },
   rankingsDescription: { marginTop: 0, marginBottom: 23 },
   communityDescription: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 9, maxWidth: 320 },
-  communityDeadCard: { backgroundColor: '#F1F8F3', borderColor: '#C5DDCD' },
-  communityYellowCard: { backgroundColor: '#FFFBEF', borderColor: '#E9DCAD' },
-  communityRejectedCard: { backgroundColor: '#FFF0F1', borderColor: '#EDC3C7' },
   communityEmpty: { borderRadius: 16, minHeight: 146, padding: 18, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
   communityCard: { borderRadius: 16, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, marginBottom: 12 },
   communityPhoto: { borderRadius: 8, width: '100%', height: 220, backgroundColor: palette.line },
@@ -1852,15 +1817,12 @@ const styles = StyleSheet.create({
   communityResultsFallback: { alignSelf: 'flex-end', marginBottom: 10 },
   communityResultsText: { color: palette.ink, fontSize: 12, fontWeight: '700', flexShrink: 1 },
   communityCaption: { color: palette.ink, fontSize: 13, marginTop: 8 },
-  flagBadge: { color: palette.red, fontSize: 11, fontWeight: '800', marginTop: 8 },
   actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginTop: 10 },
   voteButton: { width: 25, height: 25, borderRadius: 19, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
   voteButtonSelected: { borderColor: palette.red, backgroundColor: palette.paleRed },
   voteArrow: { color: palette.ink, fontSize: 12, lineHeight: 18, fontWeight: '700' },
   voteArrowSelected: { color: palette.red, fontSize: 12, lineHeight: 18, fontWeight: '700' },
   communityScore: { color: palette.ink, fontSize: 14, fontWeight: '800', textAlign: 'center', minWidth: 38 },
-  flagAction: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 8, marginTop: 2 },
-  actionSelected: { color: palette.red, fontSize: 11, fontWeight: '800' },
   communityEmptyMark: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginBottom: 11 },
   communityEmptyGlyph: { color: palette.red, fontSize: 24, lineHeight: 28, fontWeight: '300' },
   communitySectionGap: { marginTop: 29 },

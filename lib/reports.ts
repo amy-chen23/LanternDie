@@ -12,7 +12,7 @@ import type { DeathAssessment, VerificationVote } from './death-assessment';
 
 const bucket = 'report-photos';
 const maxBytes = 5 * 1024 * 1024;
-const fields = 'id, user_id, created_at, photo_path, observed_on, place_name, caption, visibility, upvotes, downvotes, flagged_inaccurate, workflow_status, insects_ready';
+const fields = 'id, user_id, created_at, photo_path, observed_on, place_name, caption, visibility, upvotes, downvotes, workflow_status, insects_ready';
 
 export type Visibility = 'private' | 'public';
 export type ReportDetails = { observed_on: string; place_name: string; caption: string };
@@ -21,8 +21,8 @@ export type Report = {
   id: string; user_id: string; created_at: string; photo_path: string; photo_url: string | null;
   photo_url_expires_at?: number;
   observed_on: string; place_name: string | null; caption: string | null; visibility: Visibility;
-  upvotes: number; downvotes: number; flagged_inaccurate: boolean; author_name: string; author_photo_url: string | null;
-  my_vote: -1 | 0 | 1; my_flag: boolean;
+  upvotes: number; downvotes: number; author_name: string; author_photo_url: string | null;
+  my_vote: -1 | 0 | 1;
   workflow_status: WorkflowStatus;
   insects_ready: boolean;
   processing: ProcessingStatus | null;
@@ -52,10 +52,9 @@ async function decorateReports(rows: any[], viewerId: string, previous: Report[]
   if (!supabase || !rows.length) return [];
   const reportIds = rows.map(row => row.id as string);
   const authorIds = [...new Set(rows.map(row => row.user_id as string))];
-  const [names, votes, flags, identifications, assessments, verificationVotes, processing, insects, credits, authorPhotos, photos] = await Promise.all([
+  const [names, votes, identifications, assessments, verificationVotes, processing, insects, credits, authorPhotos, photos] = await Promise.all([
     supabase.from('community_profiles').select('user_id, display_name').in('user_id', authorIds),
     supabase.from('report_votes').select('report_id, value').eq('voter_id', viewerId).in('report_id', reportIds),
-    supabase.from('report_flags').select('report_id').eq('flagger_id', viewerId).in('report_id', reportIds),
     supabase.from('report_identifications')
       .select('report_id, status, model_id, confidence_threshold, image_width, image_height, detections, error_message, updated_at')
       .in('report_id', reportIds),
@@ -71,7 +70,6 @@ async function decorateReports(rows: any[], viewerId: string, previous: Report[]
   ]);
   if (names.error) throw names.error;
   if (votes.error) throw votes.error;
-  if (flags.error) throw flags.error;
   if (identifications.error) throw identifications.error;
   if (assessments.error) throw assessments.error;
   if (verificationVotes.error) throw verificationVotes.error;
@@ -81,14 +79,12 @@ async function decorateReports(rows: any[], viewerId: string, previous: Report[]
   const identificationById = new Map((identifications.data ?? []).map(row => [row.report_id, row as Identification]));
   const nameById = new Map((names.data ?? []).map(row => [row.user_id, row.display_name]));
   const voteById = new Map((votes.data ?? []).map(row => [row.report_id, row.value]));
-  const flagIds = new Set((flags.data ?? []).map(row => row.report_id));
   return rows.map(row => ({
     ...row, photo_url: photos.get(row.photo_path)?.url ?? null,
     photo_url_expires_at: photos.get(row.photo_path)?.expiresAt,
     author_name: nameById.get(row.user_id) ?? 'Field member',
     author_photo_url: authorPhotos.get(row.user_id) ?? null,
     my_vote: (voteById.get(row.id) ?? 0) as -1 | 0 | 1,
-    my_flag: flagIds.has(row.id),
     insects: (insects.data ?? []).filter(insect => insect.report_id === row.id) as ReportInsect[],
     verified_kills: credits.data?.find(credit => credit.report_id === row.id)?.dead_insects ?? 0,
     processing: (processing.data ?? []).find(job => job.report_id === row.id) as ProcessingStatus | undefined ?? null,
@@ -133,10 +129,10 @@ export async function loadAdminReports(viewerId: string, all = false, reportId?:
   return decorateReports(data ?? [], viewerId);
 }
 
-export async function loadReportEngagement(reportId: string): Promise<Pick<Report, 'upvotes' | 'downvotes' | 'flagged_inaccurate'>> {
+export async function loadReportEngagement(reportId: string): Promise<Pick<Report, 'upvotes' | 'downvotes'>> {
   if (!supabase) throw new Error('Supabase is not configured.');
   const { data, error } = await supabase.from('reports')
-    .select('upvotes, downvotes, flagged_inaccurate').eq('id', reportId).single();
+    .select('upvotes, downvotes').eq('id', reportId).single();
   if (error) throw error;
   return data;
 }
@@ -184,13 +180,5 @@ export async function setReportVote(reportId: string, viewerId: string, value: -
     : existing
       ? await supabase.from('report_votes').update({ value }).eq('report_id', reportId).eq('voter_id', viewerId)
       : await supabase.from('report_votes').insert({ report_id: reportId, voter_id: viewerId, value });
-  if (result.error) throw result.error;
-}
-
-export async function setReportFlag(reportId: string, viewerId: string, flagged: boolean): Promise<void> {
-  if (!supabase) throw new Error('Supabase is not configured.');
-  const result = flagged
-    ? await supabase.from('report_flags').insert({ report_id: reportId, flagger_id: viewerId })
-    : await supabase.from('report_flags').delete().eq('report_id', reportId).eq('flagger_id', viewerId);
   if (result.error) throw result.error;
 }

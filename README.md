@@ -172,14 +172,12 @@ Selecting a photo previews it locally. Before submitting, users choose an
 observation date, optional general location and caption, and whether the report
 is private or public. They can edit those details later in Recent activity.
 Public reports appear in the Community feed for signed-in members, who can
-upvote, downvote, or flag another member's report as inaccurate. The first flag
-shows an inaccuracy badge; this is not a verification decision. Votes and flags
-can be removed. Device GPS is not collected, and friends-only sharing is not
-available until friendships exist. The submitted count updates from saved
+upvote or downvote reports. Votes can be removed. Device GPS is not collected,
+and friends-only sharing is not available until friendships exist. The submitted count updates from saved
 reports. Automatic verification, true verified counts, points, and streaks
 are not implemented. The temporary weekly and monthly leaderboard counts each
-saved report as one verified kill; community likes, flags, and classifier
-scores are excluded. Preview mode uses separate labeled sample rankings.
+saved report as one verified kill; community likes and classifier scores are
+excluded. Preview mode uses separate labeled sample rankings.
 
 Native builds include experimental on-phone
 alive/dead scoring after Roboflow detection, plus a separate community

@@ -108,10 +108,10 @@ export function InlineCommunityReview({ report, viewerId, eligible, onChanged, o
   </View>;
 }
 const styles = StyleSheet.create({
-  panel: { marginTop: 12, padding: 12, gap: 10, borderWidth: 1, borderColor: '#DDD2B5', backgroundColor: '#FFFDF6', borderRadius: 12 },
+  panel: { marginTop: 12, padding: 12, gap: 10, borderWidth: 1, borderColor: '#E2E2E2', backgroundColor: '#FFF', borderRadius: 12 },
   question: { fontSize: 15, fontWeight: '700', color: '#111' }, note: { fontSize: 12, color: '#626262' },
   previewButton: { alignItems: 'center', gap: 5 }, box: { position: 'absolute', borderWidth: 2, borderColor: '#F72D33' },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, answer: { minHeight: 44, minWidth: 64, padding: 10, borderWidth: 1, borderColor: '#BFB59B', borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, answer: { minHeight: 44, minWidth: 64, padding: 10, borderWidth: 1, borderColor: '#CCC', borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF' },
   answerText: { fontSize: 13, fontWeight: '700', color: '#111' }, disabled: { opacity: 0.5 },
   error: { color: '#A52832', fontSize: 12 }, next: { marginTop: 8, minHeight: 44, justifyContent: 'center' }, link: { color: '#A52329', fontSize: 12, fontWeight: '600' },
 });

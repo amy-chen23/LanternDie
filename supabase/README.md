@@ -18,8 +18,9 @@ pictures. It creates a separate private bucket for JPEG avatars, limited to
 Apply `migrations/20261018201510_report_details_community.sql` and then
 `migrations/20261018201548_combine_report_read_policy.sql` after the private
 reports migration. They add observation date, optional location and
-caption, public/private sharing, member votes, and inaccuracy flags. Existing
-reports remain private. Public report images remain in the private bucket and
+caption, public/private sharing, and member votes. They also retain legacy
+inaccuracy flag storage, which the app no longer uses. Existing reports remain
+private. Public report images remain in the private bucket and
 are downloaded with the member's session so a visibility change affects new
 requests immediately. The app needs this migration before using the new upload
 form or community feed.
