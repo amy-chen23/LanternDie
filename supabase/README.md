@@ -24,6 +24,15 @@ are downloaded with the member's session so a visibility change affects new
 requests immediately. The app needs this migration before using the new upload
 form or community feed.
 
+## Community vote summary API
+
+Apply `migrations/20261114231144_community_vote_summary.sql` before deploying
+clients that call `get_report_vote_summary`. The endpoint returns anonymous
+per-insect totals. Before approval, totals require a response on the current
+insect revision; after approval, all signed-in report viewers can see them.
+Existing clients remain compatible. See `../docs/COMMUNITY_REVIEW.md` for the
+API contract and disposable SQL access test.
+
 ## Author votes
 
 Apply `migrations/20261113183923_report_author_votes.sql` after the report overhaul

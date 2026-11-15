@@ -56,6 +56,9 @@ jobs:
       - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/report-processing-access.sql
         env:
           PGPASSWORD: postgres
+      - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/community-vote-summary-access.sql
+        env:
+          PGPASSWORD: postgres
       - run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f tests/community-review-access.sql
         env:
           PGPASSWORD: postgres
