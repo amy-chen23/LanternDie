@@ -14,12 +14,18 @@ test('feed author opens a public profile and returns to the feed', async ({ page
     localStorage.setItem(`sb-${projectRef}-auth-token`, JSON.stringify({ access_token: `eyJhbGciOiJIUzI1NiJ9.${payload}.fixture`, refresh_token: 'fixture', token_type: 'bearer', expires_at: 4102444800, expires_in: 3600, user }));
   }, { projectRef, user, payload });
   let authorQuery = false;
+  let pointsRequests = 0;
   await page.route(`${api}/**`, async route => {
     const url = new URL(route.request().url());
     const name = url.pathname.split('/').at(-1);
     const json = (value: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(value) });
     if (url.pathname.endsWith('/auth/v1/user')) return json(user);
     if (name === 'get_my_admin_status') return json(false);
+    if (name === 'get_profile_field_points') {
+      expect(route.request().postDataJSON()).toEqual({ profile_user_id: author });
+      if (++pointsRequests === 1) return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Temporary failure' }) });
+      return json(-7);
+    }
     if (name === 'community_profiles') return json(url.searchParams.get('user_id') === `eq.${author}`
       ? { display_name: 'Feed Author' } : [{ user_id: author, display_name: 'Feed Author' }]);
     if (name === 'reports') {
@@ -36,6 +42,9 @@ test('feed author opens a public profile and returns to the feed', async ({ page
   await page.getByRole('tab', { name: 'Sightings', exact: true }).click();
   await page.getByRole('button', { name: "View Feed Author's profile", exact: true }).click();
   await expect(page.getByText('RECENT PUBLIC SIGHTINGS', { exact: true })).toBeVisible();
+  await expect(page.getByText('FIELD POINTS', { exact: true }).locator('..').getByText('Unavailable', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Retry loading field points' }).click();
+  await expect(page.getByText('FIELD POINTS', { exact: true }).locator('..').getByText('-7', { exact: true })).toBeVisible();
   await expect(page.getByText('2 upvotes · 1 downvotes', { exact: true })).toBeVisible();
   await expect(page.getByText('viewer@example.invalid', { exact: false })).toHaveCount(0);
   expect(authorQuery).toBe(true);

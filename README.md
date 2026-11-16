@@ -5,8 +5,11 @@ The human-verified beta uses background lanternfly detection, followed by
 per-insect community or admin decisions. Reports publish to signed-in members
 after every insect has a final decision; each verified dead insect earns one
 kill credit. Weekly/monthly rankings use those credits. Automatic alive/dead
-model approval is disabled. Points, streak rewards, and earned badges remain
-future work.
+model approval is disabled. Profile field points are total post upvotes minus
+downvotes across all of a member's reports, including private reports. Totals
+refresh when My Profile or a member profile opens and can be negative. Apply
+`supabase/migrations/20261115000000_profile_field_points.sql` to enable them.
+Streak rewards and earned badges remain future work.
 
 Email/password sign-in works in Expo Go and on the website. Google sign-in works
 in a native build and on the website. Reports and photos sync through Supabase.
@@ -174,7 +177,7 @@ is private or public. They can edit those details later in Recent activity.
 Public reports appear in the Community feed for signed-in members, who can
 upvote or downvote reports. Votes can be removed. Device GPS is not collected,
 and friends-only sharing is not available until friendships exist. The submitted count updates from saved
-reports. Automatic verification, true verified counts, points, and streaks
+reports. Automatic verification, true verified counts, and streaks
 are not implemented. The temporary weekly and monthly leaderboard counts each
 saved report as one verified kill; community likes and classifier scores are
 excluded. Preview mode uses separate labeled sample rankings.
@@ -194,7 +197,8 @@ and retries for failed checks. It requires the new identification migration and
 an `identify-report` Supabase Edge Function configured with the Universe general
 segmentation workflow or a deployed Roboflow detector. See [setup and validation](supabase/README.md#lanternfly-identification).
 Experimental native alive/dead scoring and community labels are implemented on
-this branch. Automatic verification and points remain disabled. See the
+this branch. Automatic verification remains disabled; profile field points use
+post votes independently of model scores and kill credits. See the
 [branch checkpoint](docs/MODEL_IMPLEMENTATION_CHECKPOINT.md) for tested behavior,
 model limitations, deployment status, and remaining work.
 

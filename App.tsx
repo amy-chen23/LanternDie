@@ -47,6 +47,7 @@ import { InlineCommunityReview } from './components/InlineCommunityReview';
 import { loadReviewableReportIds } from './lib/reviews';
 import { PageHeader } from './components/PageHeader';
 import { MemberProfile } from './components/MemberProfile';
+import { FieldPoints } from './components/FieldPoints';
 import { AdminAccess } from './components/AdminAccess';
 import { CommunityApproval } from './components/CommunityApproval';
 import { communityApproval, confirmedInsectCounts } from './lib/community-feed';
@@ -604,6 +605,8 @@ export default function App() {
               onModerated={async () => { await Promise.all([refreshReports(), refreshCommunity()]); }} />
           ) : (
             <ProfileScreen
+              key={session?.user.id ?? 'preview'}
+              userId={session?.user.id ?? null}
               email={session?.user.email ?? 'Preview account'}
               profilePhotoUrl={visibleProfilePhoto}
               profilePhotoError={profilePhotoError}
@@ -1482,6 +1485,7 @@ function BottomNavigation({
 }
 
 function ProfileScreen({
+  userId,
   email,
   profilePhotoUrl,
   profilePhotoError,
@@ -1499,6 +1503,7 @@ function ProfileScreen({
   onSignOut,
 }: {
   email: string;
+  userId: string | null;
   profilePhotoUrl: string | null;
   profilePhotoError: string;
   savingProfilePhoto: boolean;
@@ -1641,7 +1646,7 @@ function ProfileScreen({
         <ProfileStat label="SUBMITTED REPORTS" value={String(submittedCount)} />
         <ProfileStat label="STREAK" value="0 days" />
         <ProfileStat label="VERIFIED KILLS" value={String(verifiedKills)} />
-        <ProfileStat label="FIELD POINTS" value={String(verifiedKills)} />
+        <FieldPoints userId={userId} />
       </View>
 
       <Text style={[styles.sectionEyebrow, styles.badgesEyebrow]}>BADGES</Text>

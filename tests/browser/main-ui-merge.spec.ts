@@ -36,6 +36,7 @@ test('main Sightings UI preserves filters, owner actions, avatars and results al
     if (url.pathname.startsWith('/storage/') && req.method() === 'GET') return route.fulfill({ contentType: 'image/jpeg', body: fixturePhoto });
     const name = url.pathname.split('/').at(-1);
     if (name === 'get_my_admin_status') return json(false);
+    if (name === 'get_profile_field_points') return json(5);
     if (name === 'reports') {
       if (req.method() === 'PATCH') { fixture.caption = req.postDataJSON().caption; return json(null); }
       if (req.method() === 'DELETE') { fixture.deleted = true; return json({ photo_path: `${owner}/fixture.jpg` }); }
@@ -98,7 +99,7 @@ test('main Sightings UI preserves filters, owner actions, avatars and results al
   await page.getByRole('tab', { name: 'Explore', exact: true }).click();
   await expect(page.getByText('Merged caption', { exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'My Profile', exact: true }).click();
-  await expect(page.getByText('FIELD POINTS', { exact: true }).locator('..').getByText('1', { exact: true })).toBeVisible();
+  await expect(page.getByText('FIELD POINTS', { exact: true }).locator('..').getByText('5', { exact: true })).toBeVisible();
   // Exercise the merged edit/delete flows through real UI handlers; transport is local.
   await page.getByRole('tab', { name: 'Sightings', exact: true }).click();
   await page.getByRole('tab', { name: 'My submissions', exact: true }).click();

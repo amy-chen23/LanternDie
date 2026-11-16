@@ -5,6 +5,7 @@ import { loadPublicReports, type Report } from '../lib/reports';
 import { loadProfilePhotos } from '../lib/profile-photo';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './PageHeader';
+import { FieldPoints } from './FieldPoints';
 
 export function MemberProfile({ author, viewerId, onClose }: {
   author: Report; viewerId: string; onClose: () => void;
@@ -60,6 +61,7 @@ export function MemberProfile({ author, viewerId, onClose }: {
               : <View style={[styles.avatar, styles.fallback]}><Text style={styles.initial}>{profile.name.trim().slice(0, 1).toUpperCase() || '?'}</Text></View>}
             <Text style={styles.title}>{profile.name}</Text>
           </View>
+          <FieldPoints userId={author.user_id} />
           <Text style={styles.heading}>RECENT PUBLIC SIGHTINGS</Text>
           {!reports.length ? <Text style={styles.copy}>No public sightings to show.</Text> : null}
           {reports.map(report => <View key={report.id} style={styles.card}>

@@ -5,6 +5,21 @@
 
 # Report storage setup
 
+## Profile field points
+
+Apply `migrations/20261115000000_profile_field_points.sql` to enable field points
+on My Profile and member profiles. The authenticated-only function returns the
+sum of upvotes minus downvotes across all reports owned by the selected member,
+including private reports. Only the total is shared; private report details are
+not returned. Empty totals are zero, and negative totals are allowed. Totals
+refresh when a profile opens; load failures display a retry action.
+
+Verify with two accounts: upvote, remove a vote, switch to a downvote, and reopen
+the author's profile after each change. An upvote-to-downvote switch reduces
+points by two. Making a report private must preserve its contribution. Current
+author self-votes also count. These totals are independent of verified kills
+and leaderboard rankings.
+
 Apply `migrations/20261001230742_private_reports.sql` to the free Supabase
 project before testing report submission. It creates a private photo bucket
 limited to 5 MB JPEG files and a `reports` table. Both are restricted to the
