@@ -30,30 +30,19 @@ import ListFilter from 'lucide-react-native/icons/list-filter';
 import Pencil from 'lucide-react-native/icons/pencil';
 import Search from 'lucide-react-native/icons/search';
 import RotateCw from 'lucide-react-native/icons/rotate-cw';
-import Shield from 'lucide-react-native/icons/shield';
 import Trash2 from 'lucide-react-native/icons/trash';
 import Trophy from 'lucide-react-native/icons/trophy';
 import UserRound from 'lucide-react-native/icons/user-round';
 import { deleteOwnedReport } from './lib/report-deletion';
-import { loadReports, loadPublicReports, loadVerificationReports, loadReportEngagement, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
-import { matchesSubmissionFilter, submissionStatusLabel, type SubmissionFilter } from './lib/submission-filters';
+import { loadReports, loadPublicReports, loadReportEngagement, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
+import { matchesSubmissionFilter, type SubmissionFilter } from './lib/submission-filters';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { loadLeaderboard, type LeaderboardEntry, type LeaderboardPeriod } from './lib/leaderboard';
 import { supabase } from './lib/supabase';
 import { hasPendingProcessing } from './lib/report-processing';
 import { ReportIdentification, IdentificationResultsModal, identificationActionLabel } from './components/ReportIdentification';
-import { CommunityReview } from './components/CommunityReview';
-import { InlineCommunityReview } from './components/InlineCommunityReview';
-import { loadReviewableReportIds } from './lib/reviews';
 import { PageHeader } from './components/PageHeader';
-import { AdminAccess } from './components/AdminAccess';
-import { CommunityApproval } from './components/CommunityApproval';
-import { communityApproval, confirmedInsectCounts } from './lib/community-feed';
-import { CommunityVotes } from './components/CommunityVotes';
-import { reportClassificationSummary } from './lib/classification-label';
-import { PublicationCelebration } from './components/PublicationCelebration';
-import { usePublicationCelebration } from './hooks/usePublicationCelebration';
-import { useAdminRole } from './hooks/useAdminRole';
+import { reportDetectionSummary } from './lib/detection-summary';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -69,8 +58,8 @@ const palette = {
   white: '#FFFFFF',
 };
 
-type Screen = 'home' | 'community' | 'leaderboard' | 'profile' | 'admin';
-type SightingsView = 'explore' | 'mine' | 'review';
+type Screen = 'home' | 'community' | 'leaderboard' | 'profile';
+type SightingsView = 'explore' | 'mine';
 type AuthMode = 'sign-in' | 'sign-up';
 const previewLeaderboardRankings: Record<LeaderboardPeriod, LeaderboardEntry[]> = {
   weekly: [
@@ -122,7 +111,6 @@ function displayNameError(value: string): string | null {
 export default function App() {
   const [fontsLoaded, fontError] = useAppFonts();
   const [session, setSession] = useState<Session | null>(null);
-  const adminRole = useAdminRole(session?.user.id);
   const [previewMode, setPreviewMode] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [screen, setScreen] = useState<Screen>('home');
@@ -136,13 +124,9 @@ export default function App() {
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [publicReports, setPublicReports] = useState<Report[]>([]);
-  const [verificationReports, setVerificationReports] = useState<Report[]>([]);
-  const [exploreReviewIds, setExploreReviewIds] = useState<string[]>([]);
   const [publicReportsViewerId, setPublicReportsViewerId] = useState<string | null>(null);
   const [communityLoading, setCommunityLoading] = useState(false);
   const [communityError, setCommunityError] = useState('');
-  const [verificationLoading, setVerificationLoading] = useState(false);
-  const [verificationError, setVerificationError] = useState('');
   const [submissionActionError, setSubmissionActionError] = useState('');
   const [communityBusyId, setCommunityBusyId] = useState<string | null>(null);
   const communityActionInFlight = useRef(false);
@@ -160,7 +144,6 @@ export default function App() {
   const activeUserId = useRef<string | null>(null);
   activeUserId.current = session?.user.id ?? null;
   const visibleReports = reportsOwnerId === session?.user.id ? reports : [];
-  const publication = usePublicationCelebration(session?.user.id, reports, !!session && reportsOwnerId === session.user.id);
   const latestVisibleReports = useRef<Report[]>([]);
   latestVisibleReports.current = visibleReports;
   const visiblePublicReports = publicReportsViewerId === session?.user.id ? publicReports : [];
@@ -194,14 +177,10 @@ export default function App() {
     setSubmissionFilter('all');
     setReportsLoading(false);
     setCommunityLoading(false);
-    setVerificationLoading(false);
-    setVerificationError('');
   }, [session?.user.id]);
 
   useEffect(() => {
     setPublicReports([]);
-    setVerificationReports([]);
-    setExploreReviewIds([]);
     setPublicReportsViewerId(null);
     setCommunityError('');
   }, [session?.user.id]);
@@ -232,11 +211,6 @@ export default function App() {
     if (!userId || !supabase) return;
     let alive = true;
     const resume = async () => {
-      // Loading the home screen must not wait for the activity heartbeat or
-      // download the community feed before that tab is opened.
-      void supabase!.rpc('touch_member_activity').then(({ error }) => {
-        if (error && alive && activeUserId.current === userId) setReportError('Could not update activity. Refresh to retry.');
-      });
       if (alive && activeUserId.current === userId) await Promise.all([
         refreshReports(userId, latestVisibleReports.current.length > 0),
         ...(activeScreen.current === 'community' ? [refreshCommunity(userId)] : []),
@@ -246,34 +220,25 @@ export default function App() {
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') void resume();
     });
-    const heartbeat = setInterval(async () => {
-      if (AppState.currentState === 'active') await supabase!.rpc('touch_member_activity');
-    }, 5 * 60_000);
-    return () => { alive = false; subscription.remove(); clearInterval(heartbeat); };
+    return () => { alive = false; subscription.remove(); };
   }, [session?.user.id]);
-
-  useEffect(() => {
-    if (!adminRole.isAdmin) setScreen(current => current === 'admin' ? 'profile' : current);
-  }, [adminRole.isAdmin]);
 
   useEffect(() => {
     if (screen === 'community') void refreshActiveSightings();
   }, [screen, sightingsView, session?.user.id]);
 
   const processingPending = hasPendingProcessing(visibleReports.map(report => report.processing));
-  const reviewsPending = visibleReports.some(report => report.workflow_status === 'pending_review'
-    || report.workflow_status === 'admin_review' || report.insects.some(insect => insect.label === 'pending'));
   useEffect(() => {
     const userId = session?.user.id;
-    if (!userId || (!processingPending && !reviewsPending)) return;
+    if (!userId || !processingPending) return;
     let refreshing = false;
     const timer = setInterval(async () => {
       if (refreshing || AppState.currentState !== 'active') return;
       refreshing = true;
       try { await refreshReports(userId, true); } finally { refreshing = false; }
-    }, processingPending ? 10_000 : 30_000);
+    }, 10_000);
     return () => clearInterval(timer);
-  }, [session?.user.id, processingPending, reviewsPending]);
+  }, [session?.user.id, processingPending]);
 
   async function refreshReports(userId = session?.user.id, quiet = false) {
     if (!userId) return;
@@ -294,35 +259,22 @@ export default function App() {
     }
   }
 
-  async function refreshSightingsFeed(view: 'explore' | 'review', userId = session?.user.id, quiet = false) {
+  async function refreshSightingsFeed(_view: 'explore', userId = session?.user.id, quiet = false) {
     if (!userId) return;
-    const setLoading = view === 'review' ? setVerificationLoading : setCommunityLoading;
-    const setError = view === 'review' ? setVerificationError : setCommunityError;
-    if (!quiet) setLoading(true);
-    setError('');
+    if (!quiet) setCommunityLoading(true);
+    setCommunityError('');
     try {
-      const next = await (view === 'review' ? loadVerificationReports(userId) : loadPublicReports(userId));
-      let eligibleIds: string[] = [];
-      let reviewError = '';
-      if (view === 'explore') {
-        try { eligibleIds = await loadReviewableReportIds(next.filter(report => report.user_id !== userId
-          && report.insects.some(insect => insect.label === 'pending')).map(report => report.id)); }
-        catch (cause) { reviewError = cause instanceof Error ? cause.message : 'Review prompts could not load.'; }
-      }
+      const next = await loadPublicReports(userId);
       if (activeUserId.current === userId) {
-        (view === 'review' ? setVerificationReports : setPublicReports)(next.filter(report => !deletedReports.current.has(report.id)));
-        if (view === 'explore') { setExploreReviewIds(eligibleIds); if (reviewError) setError(reviewError); }
+        setPublicReports(next.filter(report => !deletedReports.current.has(report.id)));
         setPublicReportsViewerId(userId);
       }
     } catch (error) {
-      if (activeUserId.current === userId) setError(error instanceof Error ? error.message : 'Could not load sightings.');
-    } finally {
-      if (!quiet && activeUserId.current === userId) setLoading(false);
-    }
+      if (activeUserId.current === userId) setCommunityError(error instanceof Error ? error.message : 'Could not load sightings.');
+    } finally { if (!quiet && activeUserId.current === userId) setCommunityLoading(false); }
   }
-
   async function refreshCommunity(userId = session?.user.id, quiet = false) {
-    await Promise.all([refreshSightingsFeed('explore', userId, quiet), refreshSightingsFeed('review', userId, quiet)]);
+    await refreshSightingsFeed('explore', userId, quiet);
   }
 
   function openMySubmissions() {
@@ -413,7 +365,6 @@ export default function App() {
       if (activeUserId.current !== userId) return;
       setReports(current => current.filter(item => item.id !== report.id));
       setPublicReports(current => current.filter(item => item.id !== report.id));
-      setVerificationReports(current => current.filter(item => item.id !== report.id));
       if (editingReportId === report.id) {
         setEditingReportId(null);
         setEditingDetails(newReportDetails());
@@ -554,7 +505,6 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
-      <PublicationCelebration celebration={publication.celebration} onClose={publication.dismiss} />
       <View style={styles.appLayout}>
         <View style={styles.screenContainer}>
           {screen === 'home' ? (
@@ -567,11 +517,10 @@ export default function App() {
             />
           ) : screen === 'community' ? (
             <CommunityScreen key={session?.user.id ?? 'preview'} previewMode={previewMode} reports={visiblePublicReports}
-              myReports={visibleReports} exploreReviewIds={exploreReviewIds} view={sightingsView} onChangeView={setSightingsView}
+              myReports={visibleReports} view={sightingsView} onChangeView={setSightingsView}
               submissionFilter={submissionFilter} onChangeSubmissionFilter={setSubmissionFilter}
-              verificationReports={publicReportsViewerId === session?.user.id ? verificationReports : []}
-              loading={sightingsView === 'mine' ? reportsLoading : sightingsView === 'review' ? verificationLoading : communityLoading}
-              error={sightingsView === 'mine' ? reportError : sightingsView === 'review' ? verificationError : communityError}
+              loading={sightingsView === 'mine' ? reportsLoading : communityLoading}
+              error={sightingsView === 'mine' ? reportError : communityError}
               actionError={submissionActionError} busyId={communityBusyId} userId={session?.user.id ?? null}
               editingReportId={editingReportId} editingDetails={editingDetails} onChangeEditingDetails={setEditingDetails}
               savingReport={savingReport} deletingReportId={deletingReportId} onDeleteReport={deleteSubmission}
@@ -588,9 +537,6 @@ export default function App() {
               onRefresh={refreshActiveSightings} onVote={(report, value) => void changeVote(report, value)} />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen previewMode={previewMode} />
-          ) : screen === 'admin' && adminRole.isAdmin && session ? (
-            <AdminAccess key={session.user.id} userId={session.user.id} checkAccess={adminRole.refresh}
-              onModerated={async () => { await Promise.all([refreshReports(), refreshCommunity()]); }} />
           ) : (
             <ProfileScreen
               email={session?.user.email ?? 'Preview account'}
@@ -604,23 +550,11 @@ export default function App() {
               submittedCount={visibleReports.length}
               verifiedKills={visibleReports.reduce((sum, report) => sum + report.verified_kills, 0)}
               onSaveDisplayName={saveDisplayName}
-              isAdmin={adminRole.isAdmin}
-              accessError={adminRole.error}
-              onRefreshAccess={() => { void adminRole.refresh(); }}
               onSignOut={signOut}
             />
           )}
         </View>
-        <BottomNavigation activeScreen={screen === 'admin' && !adminRole.isAdmin ? 'profile' : screen} isAdmin={adminRole.isAdmin} onSelect={(next) => {
-          if (next === 'admin') {
-            const userId = session?.user.id;
-            void adminRole.refresh().then(allowed => {
-              if (allowed && userId && activeUserId.current === userId) setScreen('admin');
-            });
-            return;
-          }
-          setScreen(next);
-        }} />
+        <BottomNavigation activeScreen={screen} onSelect={setScreen} />
       </View>
     </SafeAreaView>
   );
@@ -928,7 +862,7 @@ function HomeScreen({
         <View style={styles.selectedPhotoNotice}>
           <Text style={styles.selectedPhotoTitle}>PHOTO SELECTED</Text>
           <Text style={styles.selectedPhotoCopy}>
-            {previewMode ? 'This preview stays on your device.' : 'Human-verified beta: photos are sent to Roboflow for detection, then community reviewers or admins decide alive/dead. Background checks continue after you leave. Your upload appears in the community feed while it awaits approval. Only confirmed dead insects earn credit.'}
+            {previewMode ? 'This preview stays on your device.' : 'Photos are sent to Roboflow to identify lanternflies. Checks continue after you leave. Detected sightings appear in the feed. Upvotes and downvotes are social reactions and do not earn points.'}
           </Text>
         </View>
       ) : null}
@@ -981,12 +915,12 @@ function ReportFields({ details, onChange }: { details: ReportDetails; onChange:
     <Text style={styles.reportInputLabel}>CAPTION · OPTIONAL</Text>
     <TextInput accessibilityLabel="Report caption" value={details.caption} onChangeText={caption => onChange({ ...details, caption })}
       placeholder="Add context about the sighting" placeholderTextColor="#9AA098" maxLength={280} multiline style={[styles.reportInput, styles.captionInput]} />
-    <Text style={styles.privacyText}>Uploaded photos and captions are visible to signed-in community members immediately, including while awaiting approval.</Text>
+    <Text style={styles.privacyText}>Detected lanternfly photos and captions are visible to signed-in community members.</Text>
   </View>;
 }
 
-const CommunityPhoto = memo(function CommunityPhoto({ uri }: { uri: string | null }) {
-  return uri ? <Image source={{ uri }} style={styles.communityPhoto} /> : <View style={styles.communityPhoto} />;
+const CommunityPhoto = memo(function CommunityPhoto({ uri, authorName }: { uri: string | null; authorName: string }) {
+  return uri ? <Image source={{ uri }} style={styles.communityPhoto} accessibilityLabel={`Sighting by ${authorName}`} /> : <View style={styles.communityPhoto} />;
 });
 
 function CommunityAuthor({ report }: { report: Report }) {
@@ -1020,39 +954,39 @@ const submissionGuidance: Record<SubmissionFilter, { title: string; descriptions
     title: 'How submissions work',
     descriptions: [
       'Photo checks identify lanternflies in your image. Checks continue after you leave this screen.',
-      'Community reviewers or admins decide whether each insect is alive or dead. Your report publishes when every insect has a final decision.',
-      'Verified dead insects on published reports earn kill credit. Rejected submissions, including exact duplicate photos, do not.',
+      'Detected lanternflies are shown with numbered boxes. There is no alive/dead review.',
+      'Upvotes and downvotes affect only a post’s social score. Existing points remain separate; new point allocation is being decided.',
     ],
   },
   pending: {
     title: 'While your submission is pending',
     descriptions: [
-      'Photo saved → Photo checks → Alive/dead review → Published',
-      'Checks run in the background and interrupted checks retry automatically. Some submissions need admin review.',
-      'Your report publishes when every insect has a final decision. If checks could not finish, you can retry after 15 minutes.',
+      'Photo saved → Lanternfly detection → Feed',
+      'Detection runs in the background and interrupted checks retry automatically.',
+      'Detected sightings appear in the feed. If checks could not finish, you can retry after 15 minutes.',
     ],
   },
   earned: {
     title: 'Earned Points',
     descriptions: [
-      'These sightings earned confirmed DEAD insect credits. Each confirmed DEAD insect earns one point; a single sighting can earn multiple points.',
+      'These sightings retain previously earned points. Social votes do not change point totals.',
     ],
   },
   no_points: {
     title: 'No Points',
     descriptions: [
-      'Published sightings with no confirmed DEAD insect credit, and rejected submissions, earn no points. Confirmed ALIVE insects earn zero points.',
+      'These sightings have no allocated points. Social votes do not award points.',
       'Open a sighting’s results to see its photo checks and any available details.',
     ],
   },
 };
 
-function CommunityScreen({ previewMode, reports, myReports, verificationReports, exploreReviewIds, view, onChangeView,
+function CommunityScreen({ previewMode, reports, myReports, view, onChangeView,
   submissionFilter, onChangeSubmissionFilter, loading, error, actionError, busyId, userId, onRefresh,
   onVote, editingReportId, editingDetails, onChangeEditingDetails,
   savingReport, deletingReportId, onDeleteReport, onEditReport, onSaveEditedReport, onCancelEdit, onIdentificationChanged,
 }: {
-  previewMode: boolean; reports: Report[]; myReports: Report[]; verificationReports: Report[]; exploreReviewIds: string[];
+  previewMode: boolean; reports: Report[]; myReports: Report[];
   view: SightingsView; onChangeView: (view: SightingsView) => void;
   submissionFilter: SubmissionFilter; onChangeSubmissionFilter: (filter: SubmissionFilter) => void;
   loading: boolean; error: string; actionError: string; busyId: string | null; userId: string | null;
@@ -1074,12 +1008,6 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
     }, 30_000);
     return () => clearInterval(timer);
   }, [previewMode]);
-  const [voteResultsVersion, setVoteResultsVersion] = useState(0);
-  async function refreshReviewResults(quiet = false) {
-    setVoteResultsVersion(value => value + 1);
-    await onRefresh(quiet);
-  }
-  const [reviewReport, setReviewReport] = useState<Report | null>(null);
   const [resultsReport, setResultsReport] = useState<Report | null>(null);
   const [menuReportId, setMenuReportId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -1102,11 +1030,10 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
     return () => subscription.remove();
   }, [statusMenuOpen]);
   const currentResultsReport = resultsReport
-    ? [...myReports, ...reports, ...verificationReports].find(report => report.id === resultsReport.id) ?? resultsReport : null;
+    ? [...myReports, ...reports].find(report => report.id === resultsReport.id) ?? resultsReport : null;
   const reportBusy = savingReport || deletingReportId !== null;
-  const verificationOnly = view === 'review';
   const displayed = view === 'mine' ? myReports.filter(report => matchesSubmissionFilter(report, submissionFilter))
-    : verificationOnly ? verificationReports : reports;
+    : reports;
   const chooseView = (next: SightingsView) => {
     setStatusMenuOpen(false);
     setHelpFilter(null);
@@ -1132,7 +1059,7 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
 
       <View style={styles.feedToolbar}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.feedTabs}>
-          {([['explore', 'Explore'], ['mine', 'My submissions'], ['review', 'Needs review']] as const).map(([value, label]) => (
+          {([['explore', 'Explore'], ['mine', 'My submissions']] as const).map(([value, label]) => (
             <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected: view === value }}
               onPress={() => chooseView(value)} style={({ pressed }) => [styles.feedTab, view === value && styles.feedTabSelected, pressed && styles.pressed]}>
               <Text style={[styles.feedTabText, view === value && styles.feedTabTextSelected]}>{label}</Text>
@@ -1179,18 +1106,11 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
             style={styles.reportMenuButton}><Ellipsis size={22} color={palette.ink} /></Pressable> : null}
         </View>
         {report.photo_url ? <View style={styles.communityPhotoContainer}>
-          {verificationOnly ? <Pressable accessibilityRole="button" accessibilityLabel={`Review sighting by ${report.author_name}`}
-            onPress={() => setReviewReport(report)}>
-            <CommunityPhoto uri={report.photo_url} />
-          </Pressable> : <CommunityPhoto uri={report.photo_url} />}
-          <CommunityResultsButton report={report} review={verificationOnly}
-            onPress={() => verificationOnly ? setReviewReport(report) : setResultsReport(report)} />
-        </View> : <CommunityResultsButton report={report} review={verificationOnly}
-            onPress={() => verificationOnly ? setReviewReport(report) : setResultsReport(report)} />}
-        <CommunityApproval status={communityApproval(report)} counts={confirmedInsectCounts(report)} />
-        {report.insects.length || report.identification?.status === 'detected' || report.identification?.status === 'not_detected' ? <Text style={styles.emptyActivityTitle}>{reportClassificationSummary(report)}</Text> : null}
+          <CommunityPhoto uri={report.photo_url} authorName={report.author_name} />
+          <CommunityResultsButton report={report} onPress={() => setResultsReport(report)} />
+        </View> : <CommunityResultsButton report={report} onPress={() => setResultsReport(report)} />}
+        {report.insects.length || report.identification?.status === 'detected' || report.identification?.status === 'not_detected' ? <Text style={styles.emptyActivityTitle}>{reportDetectionSummary(report)}</Text> : null}
         {report.caption ? <Text style={styles.communityCaption}>{report.caption}</Text> : null}
-        <Text style={styles.sightingStatus}>{submissionStatusLabel(report.workflow_status)}</Text>
         <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
         {report.user_id === userId ? <ReportIdentification report={report} onChanged={onIdentificationChanged} actionsOnly /> : null}
         {editingReportId === report.id ? <View style={styles.editPanel}>
@@ -1227,12 +1147,7 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
           </View>
         </View> : null}
 
-        {!previewMode && view === 'explore' && userId && report.user_id !== userId ? <InlineCommunityReview
-          report={report} viewerId={userId} eligible={exploreReviewIds.includes(report.id)}
-          onChanged={() => refreshReviewResults(true)} onOpenPhoto={() => setReviewReport(report)} /> : null}
-        {!previewMode && userId && report.workflow_status !== 'rejected' && report.insects_ready && report.insects.length > 0 ? <CommunityVotes
-          key={`${userId}:${report.id}`} report={report} viewerId={userId} refreshVersion={voteResultsVersion} /> : null}
-        {report.workflow_status === 'published' ? <View style={styles.actionRow}>
+        {!previewMode && report.workflow_status !== 'rejected' && (report.workflow_status === 'published' || report.identification?.status === 'detected') ? <View style={styles.actionRow}>
           <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
             disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
             <Text style={report.my_vote === 1 ? styles.voteArrowSelected : styles.voteArrow}>↑</Text>
@@ -1246,8 +1161,8 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
       </View>)}
       {!loading && !error && !displayed.length ? <View style={styles.communityEmpty}>
         <View style={styles.communityEmptyMark}><Text style={styles.communityEmptyGlyph}>+</Text></View>
-        <Text style={styles.emptyActivityTitle}>{view === 'mine' ? (submissionFilter === 'all' ? 'No submissions yet' : submissionFilter === 'pending' ? 'No pending submissions' : `No submissions marked ${selectedStatusLabel}`) : verificationOnly ? 'No sightings need your review' : 'The field is quiet'}</Text>
-        <Text style={styles.emptyActivityCopy}>{view === 'mine' ? 'Your matching submissions will appear here. Add a photo from Home to log a sighting.' : verificationOnly ? 'Eligible sightings will appear here when they need your verification.' : 'Published sightings will show up here.'}</Text>
+        <Text style={styles.emptyActivityTitle}>{view === 'mine' ? (submissionFilter === 'all' ? 'No submissions yet' : submissionFilter === 'pending' ? 'No pending submissions' : `No submissions marked ${selectedStatusLabel}`) : 'The field is quiet'}</Text>
+        <Text style={styles.emptyActivityCopy}>{view === 'mine' ? 'Your matching submissions will appear here. Add a photo from Home to log a sighting.' : 'Detected lanternfly sightings will show up here.'}</Text>
       </View> : null}
 
       <Text style={styles.homeFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
@@ -1272,8 +1187,7 @@ function CommunityScreen({ previewMode, reports, myReports, verificationReports,
         </View>
       </View>
     </Modal> : null}
-    {reviewReport ? <CommunityReview key={reviewReport.id} report={reviewReport}
-      onClose={() => { setReviewReport(null); void refreshReviewResults(); }} onChanged={refreshReviewResults} /> : null}
+
   </>);
 }
 
@@ -1316,7 +1230,7 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
         <Text style={styles.previewBannerDetail}>
           {previewMode
             ? 'Sample rankings for layout testing; not connected to reports.'
-            : 'Community reviewers or admins verify every insect. Each verified dead insect earns one kill credit. Alive sightings earn zero.'}
+            : 'Rankings use existing points. Upvotes and downvotes are social reactions and do not change points.'}
         </Text>
       </View>
 
@@ -1431,11 +1345,9 @@ function BadgePreviewRow({ title, description, status = 'SOON' }: { title: strin
 
 function BottomNavigation({
   activeScreen,
-  isAdmin,
   onSelect,
 }: {
   activeScreen: Screen;
-  isAdmin: boolean;
   onSelect: (screen: Screen) => void;
 }) {
   const tabs = [
@@ -1443,7 +1355,6 @@ function BottomNavigation({
     { screen: 'community' as const, label: 'Sightings', Icon: Search },
     { screen: 'leaderboard' as const, label: 'Leaderboard', Icon: Trophy },
     { screen: 'profile' as const, label: 'My Profile', Icon: UserRound },
-    ...(isAdmin ? [{ screen: 'admin' as const, label: 'Admin', Icon: Shield }] : []),
   ];
 
   return (
@@ -1479,9 +1390,6 @@ function ProfileScreen({
   previewMode,
   submittedCount,
   verifiedKills,
-  isAdmin,
-  accessError,
-  onRefreshAccess,
   onSaveDisplayName,
   onSignOut,
 }: {
@@ -1495,9 +1403,6 @@ function ProfileScreen({
   previewMode: boolean;
   submittedCount: number;
   verifiedKills: number;
-  isAdmin: boolean;
-  accessError: string;
-  onRefreshAccess: () => void;
   onSaveDisplayName: (name: string) => Promise<void>;
   onSignOut: () => void;
 }) {
@@ -1641,11 +1546,6 @@ function ProfileScreen({
 
       <View style={styles.accountNote}>
         <Text style={styles.accountNoteTitle}>ACCOUNT & PRIVACY</Text>
-        {isAdmin ? <Text style={styles.accountNoteText}>Administrator access</Text> : null}
-        {accessError ? <Text accessibilityRole="alert" style={styles.formMessage}>{accessError}</Text> : null}
-        {!previewMode ? <Pressable accessibilityRole="button" onPress={onRefreshAccess} style={styles.refreshButton}>
-          <Text style={styles.refreshText}>Refresh account access</Text>
-        </Pressable> : null}
         <Text style={styles.accountNoteText}>Sign-in email: {email}. Your email stays private. Public reports show your display name and any place you choose to add.</Text>
       </View>
       <Pressable onPress={onSignOut} style={styles.signOutButton}>

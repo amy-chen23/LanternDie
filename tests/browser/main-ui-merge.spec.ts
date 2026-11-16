@@ -9,10 +9,9 @@ const insectId = '22222222-2222-2222-2222-222222222222';
 const env = existsSync('.env') ? readFileSync('.env', 'utf8') : '';
 const api = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? env.match(/^EXPO_PUBLIC_SUPABASE_URL=(.+)$/m)?.[1] ?? '').trim().replace(/^['"]|['"]$/g, '');
 const projectRef = new URL(api || 'https://fixture.supabase.co').hostname.split('.')[0];
-const policy = JSON.parse(readFileSync('assets/models/policy.json', 'utf8'));
 const fixturePhoto = readFileSync('tests/fixtures/browser-inference/above.jpg');
 
-test('main Sightings UI preserves filters, owner actions, avatars and results alongside local classification', async ({ page }) => {
+test('main Sightings UI preserves filters, owner actions, avatars and results with detector-only results', async ({ page }) => {
   test.skip(!api, 'Authenticated UI checks require the public Supabase URL configured at web-build time; requests are fully mocked.');
   const user = { id: owner, aud: 'authenticated', role: 'authenticated', email: 'qa@example.invalid', user_metadata: { display_name: 'Merge QA' }, app_metadata: {}, created_at: '2026-01-01T00:00:00Z' };
   const payload = Buffer.from(JSON.stringify({ sub: owner, exp: 4102444800, role: 'authenticated' })).toString('base64url');
@@ -32,9 +31,12 @@ test('main Sightings UI preserves filters, owner actions, avatars and results al
     }
     if (url.pathname.includes('/object/list/')) return json([]);
     if (url.pathname.startsWith('/storage/') && req.method() === 'DELETE') return json([]);
-    if (url.pathname.includes('/object/sign/report-photos')) return json([]);
+    if (req.method() === 'POST' && url.pathname.includes('/object/sign/report-photos')) {
+      return json(req.postDataJSON().paths.map((path: string) => ({ path, signedURL: `/object/sign/report-photos/${path}?token=fixture`, error: null })));
+    }
     if (url.pathname.startsWith('/storage/') && req.method() === 'GET') return route.fulfill({ contentType: 'image/jpeg', body: fixturePhoto });
     const name = url.pathname.split('/').at(-1);
+    if (['report_death_assessments', 'report_verification_votes', 'save_death_assessment'].includes(name ?? '')) throw Error('Classifier data must not be requested');
     if (name === 'get_my_admin_status') return json(false);
     if (name === 'reports') {
       if (req.method() === 'PATCH') { fixture.caption = req.postDataJSON().caption; return json(null); }
@@ -46,7 +48,6 @@ test('main Sightings UI preserves filters, owner actions, avatars and results al
     if (name === 'report_identifications') return json([{ report_id: reportId, status: 'detected', model_id: 'fixture', confidence_threshold: 0.5, image_width: 135, image_height: 203, detections: [{ x: 0, y: 0, width: 135, height: 203 }], updated_at: '2026-11-01T00:00:00Z' }]);
     if (name === 'report_insects') return json([{ id: insectId, report_id: reportId, revision: 1, active: true, box: { x: 0, y: 0, width: 135, height: 203 }, label: 'dead' }, { id: '44444444-4444-4444-4444-444444444444', report_id: aliveReportId, revision: 1, active: true, box: { x: 0, y: 0, width: 135, height: 203 }, label: 'alive' }]);
     if (name === 'report_kill_credits') return json([{ report_id: reportId, dead_insects: 1 }]);
-    if (name === 'report_death_assessments') return json([{ model_sha256: policy.modelSha256, report_id: reportId, status: 'complete', detector_updated_at: '2026-11-01T00:00:00Z', scores: [0.999], threshold: 0.98 }]);
     if (name === 'report_processing_jobs') return json([{ report_id: reportId, status: 'complete', attempts: 1 }]);
     if (name === 'report_votes') return json([{ report_id: reportId, value: 1 }]);
     return json([]);
@@ -60,9 +61,12 @@ test('main Sightings UI preserves filters, owner actions, avatars and results al
   await page.goto('/');
   await page.getByRole('button', { name: 'View my submissions' }).click();
   await expect(page.getByRole('button', { name: 'Filter submissions by status: All' })).toBeVisible();
-  await expect(page.getByText('1 DEAD lanternfly detected', { exact: true })).toBeVisible();
+  await expect(page.getByText('1 lanternfly detected', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Merged caption', { exact: true })).toBeVisible();
-  await expect(page.getByText('Approved', { exact: true })).toHaveCount(2);
+  await expect(page.getByRole('img', { name: 'Sighting by Merge QA', exact: true }).first()).toBeVisible();
+  await expect.poll(() => page.locator('img[src*="/object/sign/report-photos/"]').first()
+    .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  await expect(page.getByText(/^(Approved|Awaiting approval)$/)).toHaveCount(0);
   await expect(page.getByText('Merged caption', { exact: true }).locator('..')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.getByText('Alive-only fixture', { exact: true }).locator('..')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.getByText('Rejected fixture', { exact: true }).locator('..')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
@@ -70,7 +74,7 @@ test('main Sightings UI preserves filters, owner actions, avatars and results al
   await expect(page.getByRole('button', { name: 'Upvote report', exact: true }).first()).toBeEnabled();
   await page.getByRole('button', { name: 'View identification results for sighting by Merge QA: Results' }).first().click();
   await expect(page.getByText('PHOTO RESULTS', { exact: true })).toBeVisible();
-  await expect(page.getByText('1. DEAD', { exact: true })).toBeVisible();
+  await expect(page.getByText('1. Lanternfly', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Close identification results' }).click();
   await page.getByRole('button', { name: 'Filter submissions by status: All' }).click();
   await expect(page.getByRole('menuitem', { name: 'Earned Points', exact: true })).toBeVisible();
@@ -93,8 +97,7 @@ test('main Sightings UI preserves filters, owner actions, avatars and results al
   await page.getByRole('menuitem', { name: 'No Points', exact: true }).click();
   await expect(page.getByText('Alive-only fixture', { exact: true })).toBeVisible();
   await expect(page.getByText('Merged caption', { exact: true })).toHaveCount(0);
-  await page.getByRole('tab', { name: 'Needs review', exact: true }).click();
-  await expect(page.getByText('No sightings need your review', { exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Needs review', exact: true })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Explore', exact: true }).click();
   await expect(page.getByText('Merged caption', { exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'My Profile', exact: true }).click();
@@ -109,6 +112,7 @@ test('main Sightings UI preserves filters, owner actions, avatars and results al
   await page.getByRole('textbox', { name: 'Report caption' }).fill('Edited caption survives refresh');
   await page.getByRole('button', { name: 'Save details', exact: true }).click();
   await expect(page.getByText('Edited caption survives refresh', { exact: true })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Sighting by Merge QA', exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: 'Submission options', exact: true }).click();
   await page.getByRole('button', { name: 'Delete submission', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm delete submission', exact: true }).click();

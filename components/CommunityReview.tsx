@@ -3,7 +3,6 @@ import { ActivityIndicator, AppState, Image, Modal, Pressable, ScrollView, Style
 import { Text } from '../lib/typography';
 import type { Report } from '../lib/reports';
 import { loadReportReview, releaseReportReview, saveInsectReview } from '../lib/reviews';
-import { classificationLabel } from '../lib/classification-label';
 import { reviewActionMessage, reviewFinished } from '../lib/community-review';
 import type { ReviewInsect, ReviewLabel } from '../lib/community-review';
 
@@ -86,7 +85,7 @@ export function CommunityReview({ report, onClose, onChanged }: {
           }]}><Text style={styles.number}>{index + 1}</Text></View>)}
         </View> : <Text style={styles.error}>Photo unavailable. Please close this review and try again later.</Text>}
         {loading ? <ActivityIndicator /> : insects.map((insect, index) => <View key={`${insect.insect_id}:${insect.revision}`} style={styles.insect}>
-          <Text style={styles.heading}>Insect {index + 1}: {classificationLabel(insect.final_label)}</Text>
+          <Text style={styles.heading}>Insect {index + 1}: {insect.final_label === 'alive' ? 'ALIVE' : insect.final_label === 'dead' ? 'DEAD' : 'Awaiting review'}</Text>
           <Text style={styles.note}>{reviewActionMessage(insect)}</Text>
           {!insect.final_label && insect.can_vote ? <View style={styles.row}>
             {(['alive', 'dead', 'uncertain'] as const).map(label => <Pressable key={label} accessibilityRole="button"

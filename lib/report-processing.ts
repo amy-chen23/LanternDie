@@ -15,9 +15,9 @@ export function reportProcessingMessage(workflow: WorkflowStatus, job: Processin
   if (job?.status === 'queued') return 'Photo uploaded. Checks start automatically—you can leave this screen.';
   if (job?.status === 'running') return 'Checking your photo automatically. You can leave this screen.';
   if (job?.status === 'retry') return 'Checks were interrupted. We will retry automatically.';
-  if (job?.status === 'failed') return 'Checks could not finish. Awaiting admin review; you can retry after 15 minutes.';
-  if (workflow === 'admin_review') return 'Awaiting admin review.';
-  if (workflow === 'pending_review') return 'Awaiting alive/dead review from admins.';
+  if (job?.status === 'failed') return 'Detection could not finish. You can retry after 15 minutes.';
+  if (workflow === 'admin_review') return 'Detection results are unavailable.';
+  if (workflow === 'pending_review') return 'Lanternfly detection complete.';
   return 'Photo saved. Background checks are pending.';
 }
 export function hasPendingProcessing(jobs: (ProcessingStatus | null)[]) {

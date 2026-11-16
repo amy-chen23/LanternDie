@@ -21,10 +21,10 @@ export function photoCheckResult(report: PhotoCheckReport): { title: string; exp
   };
   if (report.workflow_status === 'published') return {
     ...result,
-    nextSteps: 'This submission is published following review. The automated photo check alone does not determine publication.',
+    nextSteps: 'This sighting remains in the feed. No active lanternfly boxes are available.',
   };
   return {
     ...result,
-    nextSteps: 'Pending review — this submission is not published yet. An admin can check for a missed lanternfly. No action is needed while you wait; you can also submit a clearer photo as a new sighting.',
+    nextSteps: 'This photo will not appear in the lanternfly feed. You can submit a clearer photo as a new sighting.',
   };
 }

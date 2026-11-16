@@ -1,0 +1,9 @@
+# Send only runtime code and deployable weights to an inference image build.
+**
+!model_service/
+!model_service/*.py
+!model_service/requirements.txt
+!assets/
+!assets/models/
+!assets/models/lanternfly-dead.onnx
+!assets/models/model.json
