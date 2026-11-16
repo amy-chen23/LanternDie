@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import jpeg from 'jpeg-js';
 import { paddedCrop, prepareCrop, preprocessingVersion } from '../../lib/death-policy.ts';
 import { fail } from './errors.mjs';
-export const RUNTIME_VERSION='1.24.3';
-export const RUNTIME_NAME='vercel-node-shadow-only-v1';
+import { RUNTIME_VERSION } from './runtime-info.mjs';
+export { RUNTIME_VERSION, RUNTIME_NAME } from './runtime-info.mjs';
 /** One lazily loaded native session; never initialized for unauthenticated input. */
 export function createClassifier({ modelPath, metadata, loadRuntime=()=>import('onnxruntime-node') }) {
   let ready;

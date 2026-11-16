@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { fail, uuid } from './errors.mjs';
-import { RUNTIME_NAME, RUNTIME_VERSION } from './runtime.mjs';
+import { RUNTIME_NAME, RUNTIME_VERSION } from './runtime-info.mjs';
 export const PREPROCESSING='padded-rgb-pillow-bilinear-v1';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const sameBox=(a,b)=>a&&b&&['x','y','width','height'].every(k=>a[k]===b[k]);
