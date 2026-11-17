@@ -13,6 +13,7 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Text, TextInput, useAppFonts } from './lib/typography';
@@ -40,9 +41,9 @@ import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { loadLeaderboard, type LeaderboardEntry, type LeaderboardPeriod } from './lib/leaderboard';
 import { supabase } from './lib/supabase';
 import { hasPendingProcessing } from './lib/report-processing';
-import { ReportIdentification, IdentificationResultsModal, identificationActionLabel } from './components/ReportIdentification';
+import { ReportIdentification, IdentificationResultsModal } from './components/ReportIdentification';
 import { PageHeader } from './components/PageHeader';
-import { reportDetectionSummary } from './lib/detection-summary';
+import { lanternflyThumbnailFrame } from './lib/thumbnail-crop';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -884,9 +885,47 @@ function ReportFields({ details, onChange }: { details: ReportDetails; onChange:
   </View>;
 }
 
-const CommunityPhoto = memo(function CommunityPhoto({ uri, authorName }: { uri: string | null; authorName: string }) {
-  return uri ? <Image source={{ uri }} style={styles.communityPhoto} accessibilityLabel={`Sighting by ${authorName}`} /> : <View style={styles.communityPhoto} />;
+const FEED_THUMBNAIL_SIZE = 144;
+
+const CommunityPhoto = memo(function CommunityPhoto({ report }: { report: Report }) {
+  const uri = report.photo_url!;
+  const [photoSize, setPhotoSize] = useState<{ uri: string; width: number; height: number } | null>(null);
+  const frame = lanternflyThumbnailFrame(report, FEED_THUMBNAIL_SIZE, photoSize?.uri === uri ? photoSize : null);
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const hasBoxes = report.insects.length > 0 || (!report.insects_ready && report.identification?.status === 'detected' && report.identification.detections.length > 0);
+  const needsPhotoSize = hasBoxes && !(report.identification?.image_width && report.identification?.image_height);
+  useEffect(() => {
+    if (!needsPhotoSize) return;
+    let active = true;
+    Image.getSize(uri, (width, height) => {
+      if (active) setPhotoSize({ uri, width, height });
+    }, () => {});
+    return () => { active = false; };
+  }, [uri, needsPhotoSize]);
+  return uri !== failedUri ? <Image source={{ uri }} resizeMode="contain"
+    style={frame ? [styles.communityCroppedPhoto, frame] : styles.communityPhoto}
+    accessibilityLabel={`Sighting by ${report.author_name}`} onError={() => setFailedUri(uri)} /> : (
+    <View style={[styles.communityPhoto, styles.communityPhotoUnavailable]}>
+      <Text style={styles.communityPhotoUnavailableText}>Photo unavailable</Text>
+    </View>
+  );
 });
+
+function FeedCaption({ caption }: { caption: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [naturalHeight, setNaturalHeight] = useState(0);
+  const { fontScale } = useWindowDimensions();
+  const overflowing = naturalHeight > 36 * fontScale + 1;
+  return <View style={styles.communityCaptionContainer}>
+    <Text aria-hidden accessible={false} pointerEvents="none" style={[styles.communityCaption, styles.captionMeasurement]}
+      onLayout={event => setNaturalHeight(event.nativeEvent.layout.height)}>{caption}</Text>
+    <Text testID="feed-caption" numberOfLines={expanded ? undefined : 2} style={styles.communityCaption}>{caption}</Text>
+    {overflowing ? <Pressable accessibilityRole="button" aria-expanded={expanded}
+      onPress={() => setExpanded(current => !current)} style={styles.captionToggle}>
+      <Text style={styles.captionToggleText}>{expanded ? 'Show less' : 'Show more'}</Text>
+    </Pressable> : null}
+  </View>;
+}
 
 function CommunityAuthor({ report }: { report: Report }) {
   const [failedUri, setFailedUri] = useState<string | null>(null);
@@ -897,17 +936,8 @@ function CommunityAuthor({ report }: { report: Report }) {
         accessibilityLabel={`${report.author_name}'s profile photo`} onError={() => setFailedUri(photoUri)} />
         : <Text style={styles.avatarText}>{report.author_name.trim().slice(0, 1).toUpperCase() || '?'}</Text>}
     </View>
-    <Text style={[styles.emptyActivityTitle, styles.communityAuthorName]}>{report.author_name}</Text>
+    <Text numberOfLines={1} style={[styles.emptyActivityTitle, styles.communityAuthorName]}>{report.author_name}</Text>
   </View>;
-}
-
-function CommunityResultsButton({ report, review = false, onPress }: { report: Report; review?: boolean; onPress: () => void }) {
-  const label = review ? 'Review sighting' : identificationActionLabel(report);
-  return <Pressable accessibilityRole="button" accessibilityLabel={review ? `Review sighting by ${report.author_name}` : `View identification results for sighting by ${report.author_name}: ${label}`}
-    onPress={onPress} style={({ pressed }) => [styles.communityResultsButton, report.photo_url ? styles.communityResultsOverlay : styles.communityResultsFallback, pressed && styles.pressed]}>
-    <Search size={18} color={palette.ink} strokeWidth={2} />
-    <Text style={styles.communityResultsText}>{label}</Text>
-  </Pressable>;
 }
 
 const submissionFilterLabels: Record<SubmissionFilter, string> = {
@@ -973,6 +1003,10 @@ function CommunityScreen({ previewMode, reports, myReports, view, onChangeView,
     }, 30_000);
     return () => clearInterval(timer);
   }, [previewMode]);
+  const [feedWidth, setFeedWidth] = useState(0);
+  const availableCardWidth = feedWidth >= 664 ? (feedWidth - 24) / 2 : feedWidth;
+  const cardWidth = feedWidth >= 664 ? availableCardWidth : '100%';
+  const inlineVotes = availableCardWidth >= 316;
   const [resultsReport, setResultsReport] = useState<Report | null>(null);
   const [menuReportId, setMenuReportId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -997,6 +1031,22 @@ function CommunityScreen({ previewMode, reports, myReports, view, onChangeView,
   const currentResultsReport = resultsReport
     ? [...myReports, ...reports].find(report => report.id === resultsReport.id) ?? resultsReport : null;
   const reportBusy = savingReport || deletingReportId !== null;
+  function voteControls(report: Report) {
+    if (previewMode || report.workflow_status === 'rejected'
+      || (report.workflow_status !== 'published' && report.identification?.status !== 'detected')) return null;
+    return <View style={styles.actionRow}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
+        disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
+        <Text style={report.my_vote === 1 ? styles.voteArrowSelected : styles.voteArrow}>↑</Text>
+      </Pressable>
+      <Text accessibilityLabel={`Score ${reportScore(report)}`} style={styles.communityScore}>{reportScore(report)}</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="Downvote report" accessibilityState={{ selected: report.my_vote === -1 }}
+        disabled={Boolean(busyId)} onPress={() => onVote(report, -1)} style={[styles.voteButton, report.my_vote === -1 && styles.voteButtonSelected]}>
+        <Text style={report.my_vote === -1 ? styles.voteArrowSelected : styles.voteArrow}>↓</Text>
+      </Pressable>
+    </View>;
+  }
+
   const displayed = view === 'mine' ? myReports.filter(report => matchesSubmissionFilter(report, submissionFilter))
     : reports;
   const chooseView = (next: SightingsView) => {
@@ -1007,7 +1057,7 @@ function CommunityScreen({ previewMode, reports, myReports, view, onChangeView,
     onChangeView(next);
   };
   return (<>
-    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={[styles.pageContent, styles.feedContent]} showsVerticalScrollIndicator={false}>
       <PageHeader label="SIGHTINGS" action={
           !previewMode ? <Pressable accessibilityRole="button" accessibilityLabel="Refresh feed"
             accessibilityState={{ disabled: loading, busy: loading }} disabled={loading} onPress={() => void onRefresh()}
@@ -1062,68 +1112,70 @@ function CommunityScreen({ previewMode, reports, myReports, view, onChangeView,
         onPress={() => setStatusMenuOpen(false)} style={styles.statusFilterBackdrop} /> : null}
       {actionError ? <Text accessibilityRole="alert" style={styles.formMessage}>{actionError}</Text> : null}
       {error ? <Text accessibilityRole="alert" style={styles.formMessage}>{error}</Text> : null}
-      {loading ? <ActivityIndicator color={palette.red} /> : displayed.map(report => <View key={report.id} style={styles.communityCard}>
-        <View style={styles.sightingAuthorRow}>
-          <View style={styles.reportCopy}><CommunityAuthor report={report} /></View>
-          {!previewMode && report.user_id === userId ? <Pressable accessibilityRole="button" accessibilityLabel="Submission options"
-            accessibilityState={{ expanded: menuReportId === report.id, disabled: reportBusy }} disabled={reportBusy}
-            onPress={() => { setMenuReportId(current => current === report.id ? null : report.id); setConfirmDeleteId(null); }}
-            style={styles.reportMenuButton}><Ellipsis size={22} color={palette.ink} /></Pressable> : null}
-        </View>
-        {report.photo_url ? <View style={styles.communityPhotoContainer}>
-          <CommunityPhoto uri={report.photo_url} authorName={report.author_name} />
-          <CommunityResultsButton report={report} onPress={() => setResultsReport(report)} />
-        </View> : <CommunityResultsButton report={report} onPress={() => setResultsReport(report)} />}
-        {report.insects.length || report.identification?.status === 'detected' || report.identification?.status === 'not_detected' ? <Text style={styles.emptyActivityTitle}>{reportDetectionSummary(report)}</Text> : null}
-        {report.caption ? <Text style={styles.communityCaption}>{report.caption}</Text> : null}
-        <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
-        {report.user_id === userId ? <ReportIdentification report={report} onChanged={onIdentificationChanged} actionsOnly /> : null}
-        {editingReportId === report.id ? <View style={styles.editPanel}>
-          <ReportFields details={editingDetails} onChange={onChangeEditingDetails} />
-          <Pressable accessibilityRole="button" disabled={reportBusy} onPress={onSaveEditedReport} style={[styles.primaryButton, reportBusy && styles.disabled]}>
-            <Text style={styles.primaryButtonText}>{savingReport ? 'Saving...' : 'Save details'}</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" onPress={onCancelEdit} style={styles.refreshButton}><Text style={styles.refreshText}>Cancel</Text></Pressable>
-        </View> : null}
-        {menuReportId === report.id ? <Pressable accessibilityRole="button" accessibilityLabel="Close submission options"
-          onPress={() => setMenuReportId(null)} style={styles.reportMenuBackdrop} /> : null}
-        {menuReportId === report.id ? <View style={[styles.reportMenu, styles.sightingMenu]}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Edit report details" disabled={reportBusy}
-            onPress={() => { setMenuReportId(null); onEditReport(report); }} style={styles.reportMenuItem}>
-            <Pencil size={16} color={palette.ink} /><Text style={styles.reportMenuText}>Edit</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Delete submission" disabled={reportBusy}
-            onPress={() => { setMenuReportId(null); setConfirmDeleteId(report.id); }} style={styles.reportMenuItem}>
-            <Trash2 size={16} color={palette.red} /><Text style={[styles.reportMenuText, styles.deleteText]}>Delete</Text>
-          </Pressable>
-        </View> : null}
-        {confirmDeleteId === report.id ? <View style={styles.deleteConfirmation}>
-          <Text style={styles.emptyActivityTitle}>Delete this submission?</Text>
-          <Text style={styles.emptyActivityCopy}>This will remove your post and its verified kills. This cannot be undone.</Text>
-          <View style={styles.deleteActions}>
-            <Pressable accessibilityRole="button" disabled={reportBusy} onPress={() => setConfirmDeleteId(null)} style={styles.reportMenuItem}>
-              <Text style={styles.reportMenuText}>Cancel</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Confirm delete submission" disabled={reportBusy}
-              onPress={() => void onDeleteReport(report)} style={[styles.reportMenuItem, reportBusy && styles.disabled]}>
-              {deletingReportId === report.id ? <ActivityIndicator color={palette.red} /> : <Trash2 size={16} color={palette.red} />}
-              <Text style={[styles.reportMenuText, styles.deleteText]}>{deletingReportId === report.id ? 'Deleting…' : 'Delete'}</Text>
-            </Pressable>
+      {loading ? <ActivityIndicator color={palette.red} /> : null}
+      <View testID="feed-grid" onLayout={event => setFeedWidth(event.nativeEvent.layout.width)} style={styles.communityGrid}>
+        {displayed.map(report => <View key={report.id} testID={`sighting-${report.id}`} style={[styles.communityCard, { width: cardWidth }]}>
+          <View style={styles.sightingAuthorRow}>
+            <View style={styles.reportCopy}><CommunityAuthor report={report} /></View>
+            {!previewMode && report.user_id === userId ? <Pressable accessibilityRole="button" accessibilityLabel="Submission options"
+              accessibilityState={{ expanded: menuReportId === report.id, disabled: reportBusy }} disabled={reportBusy}
+              onPress={() => { setMenuReportId(current => current === report.id ? null : report.id); setConfirmDeleteId(null); }}
+              style={styles.reportMenuButton}><Ellipsis size={22} color={palette.ink} /></Pressable> : null}
           </View>
-        </View> : null}
+          <View style={styles.communityBody}>
+            <Pressable accessibilityRole="button" accessibilityLabel={report.photo_url ? `Open photo by ${report.author_name}` : `Open photo results by ${report.author_name}`}
+              onPress={() => setResultsReport(report)} style={({ pressed }) => [styles.communityPhotoContainer, pressed && styles.pressed]}>
+              {report.photo_url ? <CommunityPhoto report={report} /> : <View style={[styles.communityPhoto, styles.communityPhotoUnavailable]}>
+                <Text style={styles.communityPhotoUnavailableText}>Photo unavailable</Text>
+              </View>}
+            </Pressable>
+            <View style={styles.communityDetails}>
+              <View>
+                {report.caption ? <FeedCaption caption={report.caption} /> : null}
+                <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
+              </View>
+              {inlineVotes ? <View style={styles.inlineVoteSlot}>{voteControls(report)}</View> : null}
+            </View>
+          </View>
+          {!inlineVotes ? <View style={styles.communityFooter}>{voteControls(report)}</View> : null}
+          {report.user_id === userId ? <ReportIdentification report={report} onChanged={onIdentificationChanged} actionsOnly /> : null}
+          {editingReportId === report.id ? <View style={styles.editPanel}>
+            <ReportFields details={editingDetails} onChange={onChangeEditingDetails} />
+            <Pressable accessibilityRole="button" disabled={reportBusy} onPress={onSaveEditedReport} style={[styles.primaryButton, reportBusy && styles.disabled]}>
+              <Text style={styles.primaryButtonText}>{savingReport ? 'Saving...' : 'Save details'}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={onCancelEdit} style={styles.refreshButton}><Text style={styles.refreshText}>Cancel</Text></Pressable>
+          </View> : null}
+          {menuReportId === report.id ? <Pressable accessibilityRole="button" accessibilityLabel="Close submission options"
+            onPress={() => setMenuReportId(null)} style={styles.reportMenuBackdrop} /> : null}
+          {menuReportId === report.id ? <View style={[styles.reportMenu, styles.sightingMenu]}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Edit report details" disabled={reportBusy}
+              onPress={() => { setMenuReportId(null); onEditReport(report); }} style={styles.reportMenuItem}>
+              <Pencil size={16} color={palette.ink} /><Text style={styles.reportMenuText}>Edit</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Delete submission" disabled={reportBusy}
+              onPress={() => { setMenuReportId(null); setConfirmDeleteId(report.id); }} style={styles.reportMenuItem}>
+              <Trash2 size={16} color={palette.red} /><Text style={[styles.reportMenuText, styles.deleteText]}>Delete</Text>
+            </Pressable>
+          </View> : null}
+          {confirmDeleteId === report.id ? <View style={styles.deleteConfirmation}>
+            <Text style={styles.emptyActivityTitle}>Delete this submission?</Text>
+            <Text style={styles.emptyActivityCopy}>This will remove your post and its verified kills. This cannot be undone.</Text>
+            <View style={styles.deleteActions}>
+              <Pressable accessibilityRole="button" disabled={reportBusy} onPress={() => setConfirmDeleteId(null)} style={styles.reportMenuItem}>
+                <Text style={styles.reportMenuText}>Cancel</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Confirm delete submission" disabled={reportBusy}
+                onPress={() => void onDeleteReport(report)} style={[styles.reportMenuItem, reportBusy && styles.disabled]}>
+                {deletingReportId === report.id ? <ActivityIndicator color={palette.red} /> : <Trash2 size={16} color={palette.red} />}
+                <Text style={[styles.reportMenuText, styles.deleteText]}>{deletingReportId === report.id ? 'Deleting…' : 'Delete'}</Text>
+              </Pressable>
+            </View>
+          </View> : null}
 
-        {!previewMode && report.workflow_status !== 'rejected' && (report.workflow_status === 'published' || report.identification?.status === 'detected') ? <View style={styles.actionRow}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
-            disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
-            <Text style={report.my_vote === 1 ? styles.voteArrowSelected : styles.voteArrow}>↑</Text>
-          </Pressable>
-          <Text accessibilityLabel={`Score ${reportScore(report)}`} style={styles.communityScore}>{reportScore(report)}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Downvote report" accessibilityState={{ selected: report.my_vote === -1 }}
-            disabled={Boolean(busyId)} onPress={() => onVote(report, -1)} style={[styles.voteButton, report.my_vote === -1 && styles.voteButtonSelected]}>
-            <Text style={report.my_vote === -1 ? styles.voteArrowSelected : styles.voteArrow}>↓</Text>
-          </Pressable>
-        </View> : null}
-      </View>)}
+
+        </View>)}
+      </View>
       {!loading && !error && !displayed.length ? <View style={styles.communityEmpty}>
         <View style={styles.communityEmptyMark}><Text style={styles.communityEmptyGlyph}>+</Text></View>
         <Text style={styles.emptyActivityTitle}>{view === 'mine' ? (submissionFilter === 'all' ? 'No submissions yet' : submissionFilter === 'pending' ? 'No pending submissions' : `No submissions marked ${selectedStatusLabel}`) : 'The field is quiet'}</Text>
@@ -1644,9 +1696,9 @@ const styles = StyleSheet.create({
   reportInput: { borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, color: palette.ink, paddingHorizontal: 10, minHeight: 42, fontSize: 14 },
   captionInput: { minHeight: 72, paddingTop: 10, textAlignVertical: 'top' },
   pageFooter: { color: '#93988F', fontSize: 8, fontWeight: '700', letterSpacing: 1.1, textAlign: 'center', marginTop: 25 },
-  sightingAuthorRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10, minHeight: 44 },
+  sightingAuthorRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8, minHeight: 44 },
   sightingStatus: { color: palette.muted, fontSize: 11, fontWeight: '700', marginVertical: 6 },
-  sightingMenu: { top: 54, right: 12 },
+  sightingMenu: { top: 64, right: 16 },
   submissionFilters: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 16, zIndex: 20 },
   statusFilterButton: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, borderWidth: 1, borderColor: palette.line, borderRadius: 10, paddingHorizontal: 12, backgroundColor: palette.paper },
   statusFilterText: { color: palette.ink, fontSize: 13, fontWeight: '600' },
@@ -1672,24 +1724,33 @@ const styles = StyleSheet.create({
   rankingsDescription: { marginTop: 0, marginBottom: 23 },
   communityDescription: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 9, maxWidth: 320 },
   communityEmpty: { borderRadius: 16, minHeight: 146, padding: 18, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
-  communityCard: { borderRadius: 16, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, marginBottom: 12 },
-  communityPhoto: { borderRadius: 8, width: '100%', height: 220, backgroundColor: palette.line },
+  feedContent: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 40 },
+  communityGrid: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 24 },
+  communityCard: { borderRadius: 16, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 16 },
+  communityPhoto: { width: FEED_THUMBNAIL_SIZE, height: FEED_THUMBNAIL_SIZE },
+  communityCroppedPhoto: { position: 'absolute' },
+  communityPhotoUnavailable: { alignItems: 'center', justifyContent: 'center', padding: 8 },
+  communityPhotoUnavailableText: { color: palette.muted, fontSize: 11, textAlign: 'center' },
+  communityBody: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  communityDetails: { flex: 1, minWidth: 0, minHeight: FEED_THUMBNAIL_SIZE, justifyContent: 'space-between' },
+  inlineVoteSlot: { marginTop: 8 },
+  communityFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   communityAuthor: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   communityAuthorAvatar: { width: 32, height: 32, borderRadius: 16, overflow: 'hidden', backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center' },
   communityAuthorPhoto: { width: 32, height: 32, resizeMode: 'cover' },
   communityAuthorName: { flex: 1 },
-  communityPhotoContainer: { position: 'relative', marginBottom: 10 },
-  communityResultsButton: { minHeight: 44, minWidth: 44, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: palette.white, borderRadius: 10, borderWidth: 1, borderColor: palette.line },
-  communityResultsOverlay: { position: 'absolute', top: 8, right: 8, maxWidth: '90%' },
-  communityResultsFallback: { alignSelf: 'flex-end', marginBottom: 10 },
-  communityResultsText: { color: palette.ink, fontSize: 12, fontWeight: '700', flexShrink: 1 },
-  communityCaption: { color: palette.ink, fontSize: 13, marginTop: 8 },
-  actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginTop: 10 },
-  voteButton: { width: 25, height: 25, borderRadius: 19, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
+  communityPhotoContainer: { width: FEED_THUMBNAIL_SIZE, height: FEED_THUMBNAIL_SIZE, flexShrink: 0, borderRadius: 8, overflow: 'hidden', backgroundColor: palette.background },
+  communityCaptionContainer: { marginTop: 4 },
+  communityCaption: { color: palette.ink, fontSize: 13, lineHeight: 18 },
+  captionMeasurement: { position: 'absolute', top: 0, left: 0, width: '100%', opacity: 0 },
+  captionToggle: { minHeight: 44, minWidth: 44, alignSelf: 'flex-start', justifyContent: 'center' },
+  captionToggleText: { color: palette.red, fontSize: 12, fontWeight: '700' },
+  actionRow: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
+  voteButton: { width: 44, height: 44, borderRadius: 19, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
   voteButtonSelected: { borderColor: palette.red, backgroundColor: palette.paleRed },
   voteArrow: { color: palette.ink, fontSize: 12, lineHeight: 18, fontWeight: '700' },
   voteArrowSelected: { color: palette.red, fontSize: 12, lineHeight: 18, fontWeight: '700' },
-  communityScore: { color: palette.ink, fontSize: 14, fontWeight: '800', textAlign: 'center', minWidth: 38 },
+  communityScore: { color: palette.ink, fontSize: 14, fontWeight: '800', textAlign: 'center', minWidth: 30 },
   communityEmptyMark: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginBottom: 11 },
   communityEmptyGlyph: { color: palette.red, fontSize: 24, lineHeight: 28, fontWeight: '300' },
   communitySectionGap: { marginTop: 29 },
