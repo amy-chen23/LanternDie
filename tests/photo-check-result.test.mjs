@@ -7,13 +7,12 @@ const noDetection = {
   processing: { status: 'complete' }, insects_ready: false, insects: [],
 };
 
-test('completed no-detection results explain pending admin review without declaring rejection', () => {
+test('completed no-detection results suggest a clearer photo without human review', () => {
   const result = photoCheckResult(noDetection);
   assert.equal(result.title, 'No lanternfly detected');
   assert.match(result.explanation, /may have been missed/);
-  assert.match(result.nextSteps, /Pending review/);
-  assert.match(result.nextSteps, /admin/);
-  assert.doesNotMatch(result.nextSteps, /rejected|will not be published/);
+  assert.match(result.nextSteps, /clearer photo/);
+  assert.doesNotMatch(result.nextSteps, /admin|Pending review/);
 });
 
 test('rejected no-detection results explain publication and next steps', () => {
@@ -49,6 +48,6 @@ test('duplicates explain why publication is blocked without inventing a detectio
 
 test('a published report never incorrectly claims it is pending or rejected', () => {
   const result = photoCheckResult({ ...noDetection, workflow_status: 'published' });
-  assert.match(result.nextSteps, /published following review/);
+  assert.match(result.nextSteps, /remains in the feed/);
   assert.doesNotMatch(result.nextSteps, /Pending review|was rejected|will not be published/);
 });

@@ -6,10 +6,10 @@ test('duplicate and rejected reports never display a pending approval message', 
   assert.match(reportProcessingMessage('rejected', { status: 'duplicate' }), /duplicate/i);
   assert.match(reportProcessingMessage('rejected', { status: 'complete' }), /rejected/i);
 });
-test('technical retries and manual review have different in-app statuses', () => {
+test('technical retries and identification completion do not request human review', () => {
   assert.match(reportProcessingMessage('pending_detection', { status: 'retry' }), /automatically/i);
-  assert.match(reportProcessingMessage('admin_review', { status: 'complete' }), /admin/i);
-  assert.match(reportProcessingMessage('pending_review', { status: 'complete' }), /alive\/dead review from admins/i);
+  assert.doesNotMatch(reportProcessingMessage('admin_review', { status: 'complete' }), /admin|approval/i);
+  assert.match(reportProcessingMessage('pending_review', { status: 'complete' }), /detection complete/i);
   assert.match(reportProcessingMessage('published', { status: 'complete' }), /published/i);
 });
 test('poll only while durable background work remains', () => {

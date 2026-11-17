@@ -1,3 +1,7 @@
+> Archived native-classifier integration, not the current application flow.
+> Do not follow the deployment steps below for the current app; use
+> [current documentation](../docs/README.md).
+
 # Phone classification and community feedback
 
 The app submits a resized JPEG and calls the existing `identify-report` Edge
@@ -44,7 +48,8 @@ to make them public. Changing back to private hides them and their feedback.
    after reviewing pending migrations). The existing Edge Function does not need
    redeployment. The user has since reported successful SQL Editor application
    to the shared project, including migration-history version `20261107000000`.
-   See `docs/MODEL_IMPLEMENTATION_CHECKPOINT.md` before attempting to reapply it.
+   Historical classifier rollout documentation has been retired. Follow the current
+   [database guidance](../docs/REPORT_OVERHAUL_DATABASE.md), not this archived integration flow.
 2. Run `npm ci`, then `npx expo run:ios` or `npx expo run:android` on a machine with
    the platform SDK installed. The ONNX config plugin adds the native module.
    Native build outputs are intentionally not committed. Stock Expo Go and the

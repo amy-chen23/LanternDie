@@ -23,7 +23,6 @@
       ]
     },
     "plugins": [
-      "onnxruntime-react-native",
       "expo-web-browser",
       [
         "expo-splash-screen",
