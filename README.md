@@ -52,6 +52,16 @@ retry action if loading fails. The total uses
 applied separately if it is not already installed. Private post details and
 sign-in emails are not exposed on member profiles.
 
+My Profile's **Friends & requests** opens the friends list, incoming requests,
+and sent requests. On another member's profile, choose **Add friend**. Recipients
+can accept or decline from My Profile or the sender's profile; senders can cancel
+a pending request, and either member can remove an accepted friendship. Use
+**Refresh friends & requests** to check for new requests while the panel is open.
+Apply only `supabase/migrations/20261120000000_friendships.sql` in the existing
+Supabase project's SQL Editor before testing this feature. Requests and friends
+lists are visible only to their participants. Friendship does not grant access
+to private reports or sign-in emails.
+
 Google sign-in uses the provider configured in Supabase. Keep its OAuth client
 secret in Google/Supabase, never Expo public variables. Its Google callback is
 `https://<project-ref>.supabase.co/auth/v1/callback`. Supabase's redirect allowlist

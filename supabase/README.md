@@ -30,6 +30,27 @@ migration remains unapplied; report images are not dependent on it.
 
 ## Migration history
 
+### Friends and requests
+
+Install `migrations/20261120000000_friendships.sql` separately in the SQL Editor
+to enable friend requests. Do not bulk-push the migration directory. The table
+stores one row per unordered member pair: `pending` requests become `accepted`
+friendships only through the recipient-authorized `accept_friend_request` RPC.
+Authenticated callers may insert only their own sender ID, cannot write status,
+and may read/delete only relationships in which they participate. Deleting a row
+cancels, declines, or removes that relationship. Self/duplicate/reverse requests
+are prohibited. Participants can read each other's display names and avatars;
+private reports keep their existing policies. No email or notification service
+is required; requests refresh when My Profile's friends panel opens or its
+refresh button is pressed.
+
+`tests/friendships-access.sql` exercises identity impersonation, self/duplicate
+requests, forbidden acceptance, third-party access, accepted friendships, profile
+access, cancellation, decline, and removal in an **empty disposable PostgreSQL**
+database. Do not run the fixture against the shared Supabase project. The browser
+test `tests/browser/friends.spec.ts` mocks two accounts for the request lifecycle;
+it does not verify a live database's policies.
+
 Migration `20261119000000_identification_social_only.sql` is applied. Its bounded
 transaction published three accepted detections, preserved historical credits and
 votes, and disabled the retired review APIs. Do not reapply/edit its source or

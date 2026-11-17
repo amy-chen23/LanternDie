@@ -45,6 +45,8 @@ import { ReportIdentification, IdentificationResultsModal } from './components/R
 import { PageHeader } from './components/PageHeader';
 import { MemberProfile } from './components/MemberProfile';
 import { FieldPoints } from './components/FieldPoints';
+import { FriendsPanel } from './components/Friends';
+import type { MemberIdentity } from './lib/friends';
 import { lanternflyThumbnailFrame } from './lib/thumbnail-crop';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -117,7 +119,7 @@ export default function App() {
   const [previewMode, setPreviewMode] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [screen, setScreen] = useState<Screen>('community');
-  const [memberProfile, setMemberProfile] = useState<Report | null>(null);
+  const [memberProfile, setMemberProfile] = useState<MemberIdentity | null>(null);
   useEffect(() => { setMemberProfile(null); }, [session?.user.id, screen]);
   const activeScreen = useRef<Screen>(screen);
   activeScreen.current = screen;
@@ -528,8 +530,9 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
-      {memberProfile && session && screen === 'community' ? <MemberProfile
+      {memberProfile && session ? <MemberProfile
         key={`${session.user.id}:${memberProfile.user_id}`} author={memberProfile} viewerId={session.user.id}
+        backLabel={screen === 'profile' ? 'Back to my profile' : 'Back to sightings'}
         onClose={() => setMemberProfile(null)} /> : null}
       <View style={styles.appLayout}>
         <View style={styles.screenContainer}>
@@ -563,6 +566,7 @@ export default function App() {
             <ProfileScreen
               key={session?.user.id ?? 'preview'}
               userId={session?.user.id ?? null}
+              onOpenMember={setMemberProfile}
               email={session?.user.email ?? 'Preview account'}
               profilePhotoUrl={visibleProfilePhoto}
               profilePhotoError={profilePhotoError}
@@ -1421,6 +1425,7 @@ function BottomNavigation({ activeScreen, onSelect, onAddPhoto }: {
 }
 
 function ProfileScreen({
+  onOpenMember,
   userId,
   email,
   profilePhotoUrl,
@@ -1437,6 +1442,7 @@ function ProfileScreen({
 }: {
   email: string;
   userId: string | null;
+  onOpenMember: (member: MemberIdentity) => void;
   profilePhotoUrl: string | null;
   profilePhotoError: string;
   savingProfilePhoto: boolean;
@@ -1571,6 +1577,7 @@ function ProfileScreen({
       {previewMode ? <Text style={styles.profilePhotoHint}>Sign in to save a profile picture.</Text> : null}
       {profilePhotoError ? <Text accessibilityRole="alert" style={styles.formMessage}>{profilePhotoError}</Text> : null}
 
+      <FriendsPanel userId={userId} onOpenProfile={onOpenMember} />
       <Text style={styles.sectionEyebrow}>YOUR PROGRESS</Text>
       <View style={styles.profileStats}>
         <ProfileStat label="SUBMITTED REPORTS" value={String(submittedCount)} />

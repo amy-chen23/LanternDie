@@ -6,9 +6,11 @@ import { loadProfilePhotos } from '../lib/profile-photo';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './PageHeader';
 import { FieldPoints } from './FieldPoints';
+import { FriendRequestButton } from './Friends';
+import type { MemberIdentity } from '../lib/friends';
 
-export function MemberProfile({ author, viewerId, onClose }: {
-  author: Report; viewerId: string; onClose: () => void;
+export function MemberProfile({ author, viewerId, onClose, backLabel = 'Back to sightings' }: {
+  author: MemberIdentity; viewerId: string; onClose: () => void; backLabel?: string;
 }) {
   const [profile, setProfile] = useState({ name: author.author_name, photo: author.author_photo_url });
   const [reports, setReports] = useState<Report[]>([]);
@@ -46,8 +48,8 @@ export function MemberProfile({ author, viewerId, onClose }: {
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
         <PageHeader label="MEMBER PROFILE" />
-        <Pressable accessibilityRole="button" accessibilityLabel="Back to sightings" onPress={onClose} style={styles.button}>
-          <Text style={styles.buttonText}>Back to sightings</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={backLabel} onPress={onClose} style={styles.button}>
+          <Text style={styles.buttonText}>{backLabel}</Text>
         </Pressable>
         {loading ? <ActivityIndicator accessibilityLabel="Loading member profile" color="#F72D33" /> : error ? <View>
           <Text accessibilityRole="alert" style={styles.copy}>{error}</Text>
@@ -61,6 +63,7 @@ export function MemberProfile({ author, viewerId, onClose }: {
               : <View style={[styles.avatar, styles.fallback]}><Text style={styles.initial}>{profile.name.trim().slice(0, 1).toUpperCase() || '?'}</Text></View>}
             <Text style={styles.title}>{profile.name}</Text>
           </View>
+          <FriendRequestButton key={`${viewerId}:${author.user_id}`} userId={viewerId} otherId={author.user_id} />
           <FieldPoints userId={author.user_id} />
           <Text style={styles.heading}>RECENT PUBLIC SIGHTINGS</Text>
           {!reports.length ? <Text style={styles.copy}>No public sightings to show.</Text> : null}
