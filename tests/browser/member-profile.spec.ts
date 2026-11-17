@@ -19,6 +19,13 @@ test('feed author opens a public profile and returns to the feed', async ({ page
     const url = new URL(route.request().url());
     const name = url.pathname.split('/').at(-1);
     const json = (value: unknown) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(value) });
+    if (route.request().method() === 'POST' && url.pathname.includes('/object/sign/profile-photos')) {
+      const body = route.request().postDataJSON();
+      return json((body.paths ?? []).map((path: string) => ({ path, signedURL: `/object/sign/profile-photos/${path}?token=fixture`, error: null })));
+    }
+    if (route.request().method() === 'GET' && url.pathname.includes('/object/sign/profile-photos/')) {
+      return route.fulfill({ contentType: 'image/jpeg', body: readFileSync('tests/fixtures/browser-inference/above.jpg') });
+    }
     if (url.pathname.endsWith('/auth/v1/user')) return json(user);
     if (name === 'get_my_admin_status') return json(false);
     if (name === 'get_profile_field_points') {
@@ -40,7 +47,7 @@ test('feed author opens a public profile and returns to the feed', async ({ page
   });
   await page.goto('/');
   await page.getByRole('tab', { name: 'Sightings', exact: true }).click();
-  await page.getByRole('button', { name: "View Feed Author's profile", exact: true }).click();
+  await page.getByText('Feed Author', { exact: true }).click();
   await expect(page.getByText('RECENT PUBLIC SIGHTINGS', { exact: true })).toBeVisible();
   await expect(page.getByText('FIELD POINTS', { exact: true }).locator('..').getByText('Unavailable', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Retry loading field points' }).click();
@@ -51,4 +58,6 @@ test('feed author opens a public profile and returns to the feed', async ({ page
   await page.getByRole('button', { name: 'Back to sightings', exact: true }).click();
   await expect(page.getByText('RECENT PUBLIC SIGHTINGS', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: "View Feed Author's profile" })).toBeVisible();
+  await page.getByRole('img', { name: "Feed Author's profile photo", exact: true }).click();
+  await expect(page.getByText('RECENT PUBLIC SIGHTINGS', { exact: true })).toBeVisible();
 });
