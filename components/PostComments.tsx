@@ -97,14 +97,13 @@ export function PostComments({ reportId, userId, canComment }: {
     {open ? <View style={styles.thread}>
       {!userId ? <Text style={styles.note}>Sign in to view and add comments.</Text> : <>
         <View style={styles.toolbar}>
-          <Text style={styles.note}>Newest first</Text>
           <Pressable accessibilityRole="button" disabled={busy || loading} onPress={() => setAttempt(value => value + 1)} style={styles.toggle}>
             <Text style={styles.link}>Refresh comments</Text>
           </Pressable>
         </View>
         {loading ? <ActivityIndicator accessibilityLabel="Loading comments" color="#F72D33" /> : null}
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        {!loading && !error && !rows.length ? <Text style={styles.note}>No comments yet. Start the conversation.</Text> : null}
+        {!loading && !error && !rows.length ? <Text style={styles.note}>No comments yet.</Text> : null}
         {rows.map(comment => <View key={comment.id} testID={`comment-${comment.id}`} style={styles.comment}>
           <Text style={styles.name}>{comment.author_name}</Text>
           <Text style={styles.note}>{new Date(comment.created_at).toLocaleString()}</Text>
