@@ -4,7 +4,6 @@ import { Text } from '../lib/typography';
 import { loadPublicReports, type Report } from '../lib/reports';
 import { loadProfilePhotos } from '../lib/profile-photo';
 import { supabase } from '../lib/supabase';
-import { PageHeader } from './PageHeader';
 import { FieldPoints } from './FieldPoints';
 import { FriendRequestButton } from './Friends';
 import type { MemberIdentity } from '../lib/friends';
@@ -47,7 +46,6 @@ export function MemberProfile({ author, viewerId, onClose, backLabel = 'Back to 
   return <Modal visible animationType="slide" onRequestClose={onClose}>
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
-        <PageHeader label="MEMBER PROFILE" />
         <Pressable accessibilityRole="button" accessibilityLabel={backLabel} onPress={onClose} style={styles.button}>
           <Text style={styles.buttonText}>{backLabel}</Text>
         </Pressable>
