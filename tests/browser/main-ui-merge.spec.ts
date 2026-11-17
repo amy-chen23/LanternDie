@@ -59,7 +59,7 @@ test('main Sightings UI preserves filters, owner actions, avatars and results wi
   });
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
-  await page.getByRole('button', { name: 'View my submissions' }).click();
+  await page.getByRole('tab', { name: 'My submissions', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Filter submissions by status: All' })).toBeVisible();
   await expect(page.getByText('1 lanternfly detected', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Merged caption', { exact: true })).toBeVisible();

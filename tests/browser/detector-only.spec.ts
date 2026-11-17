@@ -50,7 +50,7 @@ async function setup(page: Page) {
 }
 async function openOwnerReports(page: Page) {
   await page.goto('/');
-  await page.getByRole('button', { name: 'View my submissions' }).click();
+  await page.getByRole('tab', { name: 'My submissions', exact: true }).click();
 }
 
 test('owner detector results remain counts and boxes after refresh, with no classifier requests', async ({ page }) => {
@@ -69,7 +69,7 @@ test('owner detector results remain counts and boxes after refresh, with no clas
   await expect(page.getByText(/LIKELY DEAD|Retry photo check|Checking photo…/)).toHaveCount(0);
   await page.getByRole('button', { name: 'Close identification results' }).click();
   await page.reload();
-  await page.getByRole('button', { name: 'View my submissions' }).click();
+  await page.getByRole('tab', { name: 'My submissions', exact: true }).click();
   await expect(page.getByText('2 lanternflies detected', { exact: true })).toBeVisible();
   await page.waitForTimeout(1800); // Regression: used to schedule the classifier after 1500ms.
   expect(state.classifierCalls).toEqual([]);

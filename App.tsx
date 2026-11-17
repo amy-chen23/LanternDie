@@ -25,7 +25,7 @@ import Check from 'lucide-react-native/icons/check';
 import ChevronDown from 'lucide-react-native/icons/chevron-down';
 import CircleHelp from 'lucide-react-native/icons/circle-question-mark';
 import Ellipsis from 'lucide-react-native/icons/ellipsis';
-import House from 'lucide-react-native/icons/house';
+import Plus from 'lucide-react-native/icons/plus';
 import ListFilter from 'lucide-react-native/icons/list-filter';
 import Pencil from 'lucide-react-native/icons/pencil';
 import Search from 'lucide-react-native/icons/search';
@@ -58,7 +58,7 @@ const palette = {
   white: '#FFFFFF',
 };
 
-type Screen = 'home' | 'community' | 'leaderboard' | 'profile';
+type Screen = 'community' | 'leaderboard' | 'profile';
 type SightingsView = 'explore' | 'mine';
 type AuthMode = 'sign-in' | 'sign-up';
 const previewLeaderboardRankings: Record<LeaderboardPeriod, LeaderboardEntry[]> = {
@@ -113,13 +113,17 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
-  const [screen, setScreen] = useState<Screen>('home');
+  const [screen, setScreen] = useState<Screen>('community');
   const activeScreen = useRef<Screen>(screen);
   activeScreen.current = screen;
   const [sightingsView, setSightingsView] = useState<SightingsView>('explore');
   const [submissionFilter, setSubmissionFilter] = useState<SubmissionFilter>('all');
   const [editingDetails, setEditingDetails] = useState<ReportDetails>(newReportDetails);
   const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [uploadError, setUploadError] = useState('');
+  const pickingPhoto = useRef(false);
+  const photoSelectionRequest = useRef(0);
+  const uploadInFlight = useRef(false);
   const [reportDetails, setReportDetails] = useState<ReportDetails>(newReportDetails);
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
@@ -289,28 +293,36 @@ export default function App() {
   }
 
   async function choosePhoto() {
-    if (Platform.OS !== 'web') {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Photo access needed', 'Allow photo-library access to choose a lanternfly image.');
-        return;
+    if (pickingPhoto.current || uploadInFlight.current) return;
+    pickingPhoto.current = true;
+    const selectionRequest = ++photoSelectionRequest.current;
+    try {
+      if (Platform.OS !== 'web') {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert('Photo access needed', 'Allow photo-library access to choose a lanternfly image.');
+          return;
+        }
       }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.85,
+      });
+      if (!result.canceled && selectionRequest === photoSelectionRequest.current) {
+        setUploadError('');
+        setPhotoAsset(result.assets[0]);
+      }
+    } catch (error) {
+      Alert.alert('Could not choose photo', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      if (selectionRequest === photoSelectionRequest.current) pickingPhoto.current = false;
     }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.85,
-    });
-
-    if (!result.canceled) setPhotoAsset(result.assets[0]);
   }
 
   async function saveReport() {
-    if (!session || !photoAsset || savingReport) return;
+    if (!session || !photoAsset || uploadInFlight.current) return;
+    uploadInFlight.current = true;
     setSavingReport(true);
-    setReportError('');
+    setUploadError('');
     try {
       const userId = session.user.id;
       await submitReport(userId, photoAsset, reportDetails);
@@ -322,17 +334,20 @@ export default function App() {
         void refreshReports(userId, true);
       }
     } catch (error) {
-      setReportError(error instanceof Error ? error.message : 'Could not save your report.');
+      setUploadError(error instanceof Error ? error.message : 'Could not save your report.');
     } finally {
+      uploadInFlight.current = false;
       setSavingReport(false);
     }
   }
 
   function cancelReportUpload() {
-    if (savingReport) return;
+    if (uploadInFlight.current) return;
+    photoSelectionRequest.current++;
+    pickingPhoto.current = false;
     setPhotoAsset(null);
     setReportDetails(newReportDetails());
-    setReportError('');
+    setUploadError('');
   }
 
   async function saveEditedReport() {
@@ -461,6 +476,9 @@ export default function App() {
     if (supabase && session) {
       await supabase.auth.signOut();
     }
+    photoSelectionRequest.current++;
+    pickingPhoto.current = false;
+    setUploadError('');
     setPreviewMode(false);
     setPhotoAsset(null);
     setReportDetails(newReportDetails());
@@ -472,7 +490,7 @@ export default function App() {
     setProfilePhotoUrl(null);
     setProfilePhotoOwnerId(null);
     setProfilePhotoError('');
-    setScreen('home');
+    setScreen('community');
   }
 
   async function saveDisplayName(name: string) {
@@ -507,15 +525,7 @@ export default function App() {
       <StatusBar style="dark" />
       <View style={styles.appLayout}>
         <View style={styles.screenContainer}>
-          {screen === 'home' ? (
-            <HomeScreen
-              profilePhotoUrl={visibleProfilePhoto} displayName={displayName} previewMode={previewMode}
-              photoUri={photoAsset?.uri ?? null} reportDetails={reportDetails} onChangeReportDetails={setReportDetails}
-              reports={visibleReports} reportError={reportError} savingReport={savingReport}
-              onChoosePhoto={choosePhoto} onSubmitReport={saveReport} onCancelReportUpload={cancelReportUpload}
-              onOpenSubmissions={openMySubmissions} onOpenProfile={() => setScreen('profile')}
-            />
-          ) : screen === 'community' ? (
+          {screen === 'community' ? (
             <CommunityScreen key={session?.user.id ?? 'preview'} previewMode={previewMode} reports={visiblePublicReports}
               myReports={visibleReports} view={sightingsView} onChangeView={setSightingsView}
               submissionFilter={submissionFilter} onChangeSubmissionFilter={setSubmissionFilter}
@@ -554,7 +564,12 @@ export default function App() {
             />
           )}
         </View>
-        <BottomNavigation activeScreen={screen} onSelect={setScreen} />
+        <BottomNavigation activeScreen={screen} onSelect={setScreen} onAddPhoto={choosePhoto} />
+        {photoAsset ? <ReportUploadDialog
+          previewMode={previewMode} photoUri={photoAsset.uri} reportDetails={reportDetails}
+          onChangeReportDetails={setReportDetails} reportError={uploadError} savingReport={savingReport}
+          onChoosePhoto={choosePhoto} onSubmitReport={saveReport} onCancelReportUpload={cancelReportUpload}
+        /> : null}
       </View>
     </SafeAreaView>
   );
@@ -774,134 +789,84 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
   );
 }
 
-function HomeScreen({
-  profilePhotoUrl, displayName, previewMode, photoUri, reportDetails, onChangeReportDetails,
-  reports, reportError, savingReport, onChoosePhoto, onSubmitReport, onCancelReportUpload,
-  onOpenSubmissions, onOpenProfile,
+function ReportUploadDialog({
+  previewMode, photoUri, reportDetails, onChangeReportDetails, reportError, savingReport,
+  onChoosePhoto, onSubmitReport, onCancelReportUpload,
 }: {
-  profilePhotoUrl: string | null; displayName: string; previewMode: boolean; photoUri: string | null;
-  reportDetails: ReportDetails; onChangeReportDetails: (details: ReportDetails) => void;
-  reports: Report[]; reportError: string; savingReport: boolean;
+  previewMode: boolean; photoUri: string; reportDetails: ReportDetails;
+  onChangeReportDetails: (details: ReportDetails) => void; reportError: string; savingReport: boolean;
   onChoosePhoto: () => void; onSubmitReport: () => void; onCancelReportUpload: () => void;
-  onOpenSubmissions: () => void; onOpenProfile: () => void;
 }) {
-  return (
-    <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
-      <PageHeader label="FIELD LOG" action={
-        <Pressable accessibilityLabel="Open profile" onPress={onOpenProfile} style={styles.avatarButton}>
-          {profilePhotoUrl ? <Image source={{ uri: profilePhotoUrl }} style={styles.homeAvatarImage} /> : (
-            <Text style={styles.avatarText}>{displayName.slice(0, 1).toUpperCase()}</Text>
-          )}
-        </Pressable>
-      } />
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); onCancelReportUpload(); }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onCancelReportUpload]);
 
-      {previewMode ? (
-        <View style={styles.previewBanner}>
-          <Text style={styles.previewBannerText}>PREVIEW MODE</Text>
-          <Text style={styles.previewBannerDetail}>Progress is sample UI only and will not be saved.</Text>
-        </View>
-      ) : null}
-
-      <View style={styles.streakCard}>
-        <View style={styles.streakTopline}>
-          <Text style={styles.streakLabel}>YOUR CURRENT STREAK</Text>
-          <View style={styles.streakDot} />
-        </View>
-        <View style={styles.streakNumberRow}>
-          <Text style={styles.streakNumber}>0</Text>
-          <Text style={styles.streakDays}>DAYS</Text>
-        </View>
-        <View style={styles.streakDivider} />
-        <View style={styles.streakBottomRow}>
-          <Text style={styles.streakPrompt}>Start a new run today.</Text>
-          <Text style={styles.streakMark}>01</Text>
-        </View>
-        <View pointerEvents="none" style={styles.streakDecor}>
-          <View style={styles.streakDecorRing} />
-        </View>
-      </View>
-
-      <View style={styles.statsRow}>
-        <View style={styles.statBlock}>
-          <Text style={styles.statLabel}>SUBMITTED REPORTS</Text>
-          <Text style={styles.statValue}>{reports.length}</Text>
-          <Text style={styles.statFoot}>your field log</Text>
-        </View>
-        <View style={styles.statSeparator} />
-        <View style={styles.statBlock}>
-          <Text style={styles.statLabel}>VERIFIED KILLS</Text>
-          <Text style={styles.statValue}>{reports.reduce((sum, report) => sum + report.verified_kills, 0)}</Text>
-          <Text style={styles.statFoot}>earned together</Text>
-        </View>
-      </View>
-
-      <View style={styles.sectionHeadingRow}>
-        <View>
-          <Text style={styles.sectionEyebrow}>ADD TO THE COUNT</Text>
-          <Text style={styles.sectionTitle}>Log a lanternfly</Text>
-        </View>
-      </View>
-
-      <Pressable
-        accessibilityRole="button"
-        onPress={onChoosePhoto}
-        style={({ pressed }) => [styles.uploadButton, pressed && styles.pressed]}
-      >
-        {photoUri ? (
-          <Image source={{ uri: photoUri }} style={styles.photoPreview} />
-        ) : (
-          <View style={styles.uploadIcon}><Text style={styles.uploadPlus}>+</Text></View>
-        )}
-        <View style={styles.uploadCopy}>
-          <Text style={styles.uploadTitle}>{photoUri ? 'Choose another photo' : 'Add a photo'}</Text>
-          <Text style={styles.uploadSubtitle}>{photoUri ? 'Tap to replace your selection' : 'Choose an image from your library'}</Text>
-        </View>
-        <Text style={styles.uploadArrow}>{'>'}</Text>
-      </Pressable>
-      {photoUri ? (
-        <View style={styles.selectedPhotoNotice}>
-          <Text style={styles.selectedPhotoTitle}>PHOTO SELECTED</Text>
-          <Text style={styles.selectedPhotoCopy}>
-            {previewMode ? 'This preview stays on your device.' : 'Photos are sent to Roboflow to identify lanternflies. Checks continue after you leave. Detected sightings appear in the feed. Upvotes and downvotes are social reactions and do not earn points.'}
-          </Text>
-        </View>
-      ) : null}
-      {photoUri ? (
-        <>
-          {!previewMode ? <ReportFields details={reportDetails} onChange={onChangeReportDetails} /> : null}
-          <View style={styles.reportUploadActions}>
-            {!previewMode ? <Pressable
-              accessibilityRole="button"
-              disabled={savingReport}
-              onPress={onSubmitReport}
-              style={[styles.primaryButton, styles.reportSubmitButton, savingReport && styles.disabled]}
-            >
-              {savingReport ? <><ActivityIndicator color={palette.white} /><Text style={styles.primaryButtonText}>Uploading…</Text></> : <Text style={styles.primaryButtonText}>Submit report</Text>}
-            </Pressable> : null}
-            <Pressable accessibilityRole="button" accessibilityLabel="Cancel report upload" disabled={savingReport}
-              onPress={onCancelReportUpload} style={[styles.cancelUploadButton, previewMode && styles.cancelUploadButtonFull, savingReport && styles.disabled]}>
-              <Text style={styles.cancelUploadText}>Cancel</Text>
-            </Pressable>
+  return <Modal transparent visible animationType="fade" onRequestClose={onCancelReportUpload}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.uploadBackdrop}>
+      <View accessibilityViewIsModal accessibilityRole="dialog" accessibilityLabel="Log a lanternfly" style={styles.uploadDialog}>
+        <ScrollView contentContainerStyle={styles.pageContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.sectionHeadingRow}>
+            <View>
+              <Text style={styles.sectionEyebrow}>ADD TO THE COUNT</Text>
+              <Text style={styles.sectionTitle}>Log a lanternfly</Text>
+            </View>
           </View>
-        </>
-      ) : null}
-      {reportError ? <Text accessibilityRole="alert" style={styles.formMessage}>{reportError}</Text> : null}
 
-      <View style={styles.privacyNote}>
-        <Text style={styles.privacyGlyph}>i</Text>
-        <Text style={styles.privacyText}>Location is optional place text. Device GPS is not collected.</Text>
+          <Pressable
+            accessibilityRole="button"
+            disabled={savingReport} onPress={onChoosePhoto}
+            style={({ pressed }) => [styles.uploadButton, pressed && styles.pressed]}
+          >
+            <Image source={{ uri: photoUri }} style={styles.photoPreview} />
+            <View style={styles.uploadCopy}>
+              <Text style={styles.uploadTitle}>Choose another photo</Text>
+              <Text style={styles.uploadSubtitle}>Tap to replace your selection</Text>
+            </View>
+            <Text style={styles.uploadArrow}>{'>'}</Text>
+          </Pressable>
+          {photoUri ? (
+            <View style={styles.selectedPhotoNotice}>
+              <Text style={styles.selectedPhotoTitle}>PHOTO SELECTED</Text>
+              <Text style={styles.selectedPhotoCopy}>
+                {previewMode ? 'This preview stays on your device.' : 'Photos are sent to Roboflow to identify lanternflies. Checks continue after you leave. Detected sightings appear in the feed. Upvotes and downvotes are social reactions and do not earn points.'}
+              </Text>
+            </View>
+          ) : null}
+          {photoUri ? (
+            <>
+              {!previewMode ? <ReportFields details={reportDetails} onChange={onChangeReportDetails} /> : null}
+              <View style={styles.reportUploadActions}>
+                {!previewMode ? <Pressable
+                  accessibilityRole="button"
+                  disabled={savingReport}
+                  onPress={onSubmitReport}
+                  style={[styles.primaryButton, styles.reportSubmitButton, savingReport && styles.disabled]}
+                >
+                  {savingReport ? <><ActivityIndicator color={palette.white} /><Text style={styles.primaryButtonText}>Uploading…</Text></> : <Text style={styles.primaryButtonText}>Submit report</Text>}
+                </Pressable> : null}
+                <Pressable accessibilityRole="button" accessibilityLabel="Cancel report upload" disabled={savingReport}
+                  onPress={onCancelReportUpload} style={[styles.cancelUploadButton, previewMode && styles.cancelUploadButtonFull, savingReport && styles.disabled]}>
+                  <Text style={styles.cancelUploadText}>Cancel</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : null}
+          {reportError ? <Text accessibilityRole="alert" style={styles.formMessage}>{reportError}</Text> : null}
+
+          <View style={styles.privacyNote}>
+            <Text style={styles.privacyGlyph}>i</Text>
+            <Text style={styles.privacyText}>Location is optional place text. Device GPS is not collected.</Text>
+          </View>
+
+        </ScrollView>
       </View>
-
-      <Pressable accessibilityRole="button" onPress={onOpenSubmissions} style={({ pressed }) => [styles.submissionsLink, pressed && styles.pressed]}>
-        <View style={styles.reportCopy}>
-          <Text style={styles.emptyActivityTitle}>View my submissions</Text>
-          <Text style={styles.emptyActivityCopy}>Track progress and manage your sightings.</Text>
-        </View>
-        <Text style={styles.leaderboardArrow}>›</Text>
-      </Pressable>
-      <Text style={styles.homeFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
-    </ScrollView>
-  );
+    </KeyboardAvoidingView>
+  </Modal>;
 }
 
 function ReportFields({ details, onChange }: { details: ReportDetails; onChange: (details: ReportDetails) => void }) {
@@ -1060,7 +1025,7 @@ function CommunityScreen({ previewMode, reports, myReports, view, onChangeView,
       <View style={styles.feedToolbar}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.feedTabs}>
           {([['explore', 'Explore'], ['mine', 'My submissions']] as const).map(([value, label]) => (
-            <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected: view === value }}
+            <Pressable key={value} accessibilityRole="tab" aria-selected={view === value}
               onPress={() => chooseView(value)} style={({ pressed }) => [styles.feedTab, view === value && styles.feedTabSelected, pressed && styles.pressed]}>
               <Text style={[styles.feedTabText, view === value && styles.feedTabTextSelected]}>{label}</Text>
             </Pressable>
@@ -1162,10 +1127,10 @@ function CommunityScreen({ previewMode, reports, myReports, view, onChangeView,
       {!loading && !error && !displayed.length ? <View style={styles.communityEmpty}>
         <View style={styles.communityEmptyMark}><Text style={styles.communityEmptyGlyph}>+</Text></View>
         <Text style={styles.emptyActivityTitle}>{view === 'mine' ? (submissionFilter === 'all' ? 'No submissions yet' : submissionFilter === 'pending' ? 'No pending submissions' : `No submissions marked ${selectedStatusLabel}`) : 'The field is quiet'}</Text>
-        <Text style={styles.emptyActivityCopy}>{view === 'mine' ? 'Your matching submissions will appear here. Add a photo from Home to log a sighting.' : 'Detected lanternfly sightings will show up here.'}</Text>
+        <Text style={styles.emptyActivityCopy}>{view === 'mine' ? 'Your matching submissions will appear here. Tap + to add a photo and log a sighting.' : 'Detected lanternfly sightings will show up here.'}</Text>
       </View> : null}
 
-      <Text style={styles.homeFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
+      <Text style={styles.pageFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
     </ScrollView>
     <IdentificationResultsModal report={currentResultsReport} onClose={() => setResultsReport(null)} />
     {helpFilter !== null ? <Modal transparent animationType="fade" visible onRequestClose={() => setHelpFilter(null)}>
@@ -1232,6 +1197,25 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
             ? 'Sample rankings for layout testing; not connected to reports.'
             : 'Rankings use existing points. Upvotes and downvotes are social reactions and do not change points.'}
         </Text>
+      </View>
+
+      <View style={styles.streakCard}>
+        <View style={styles.streakTopline}>
+          <Text style={styles.streakLabel}>YOUR CURRENT STREAK</Text>
+          <View style={styles.streakDot} />
+        </View>
+        <View style={styles.streakNumberRow}>
+          <Text style={styles.streakNumber}>0</Text>
+          <Text style={styles.streakDays}>DAYS</Text>
+        </View>
+        <View style={styles.streakDivider} />
+        <View style={styles.streakBottomRow}>
+          <Text style={styles.streakPrompt}>Start a new run today.</Text>
+          <Text style={styles.streakMark}>01</Text>
+        </View>
+        <View pointerEvents="none" style={styles.streakDecor}>
+          <View style={styles.streakDecorRing} />
+        </View>
       </View>
 
       <View style={styles.leaderboardPanel}>
@@ -1317,7 +1301,7 @@ function LeaderboardScreen({ previewMode }: { previewMode: boolean }) {
       <BadgePreviewRow title="Local Star" description="Top verified contributor within 5 miles. Location matching is not available yet." />
       <BadgePreviewRow title="Kill Streak" description="Recognizes consecutive days with verified kills." />
       <BadgePreviewRow title="Best Streak" description="Your personal record for consecutive verified days." />
-      <Text style={styles.homeFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
+      <Text style={styles.pageFooter}>A COMMUNITY EFFORT FOR HEALTHIER HABITATS</Text>
     </ScrollView>
   );
 }
@@ -1343,40 +1327,30 @@ function BadgePreviewRow({ title, description, status = 'SOON' }: { title: strin
   );
 }
 
-function BottomNavigation({
-  activeScreen,
-  onSelect,
-}: {
-  activeScreen: Screen;
-  onSelect: (screen: Screen) => void;
+function BottomNavigation({ activeScreen, onSelect, onAddPhoto }: {
+  activeScreen: Screen; onSelect: (screen: Screen) => void; onAddPhoto: () => void;
 }) {
-  const tabs = [
-    { screen: 'home' as const, label: 'Home', Icon: House },
-    { screen: 'community' as const, label: 'Sightings', Icon: Search },
-    { screen: 'leaderboard' as const, label: 'Leaderboard', Icon: Trophy },
-    { screen: 'profile' as const, label: 'My Profile', Icon: UserRound },
-  ];
-
-  return (
-    <View style={styles.tabBar}>
-      {tabs.map(({ screen: tabScreen, label, Icon }) => {
-        const active = activeScreen === tabScreen;
-        const color = active ? palette.red : palette.muted;
-        return (
-          <Pressable
-            key={tabScreen}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            onPress={() => onSelect(tabScreen)}
-            style={styles.tabButton}
-          >
-            <Icon color={color} size={18} strokeWidth={active ? 2.4 : 1.8} />
-            <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
-          </Pressable>
-        );
-      })}
+  const tab = (screen: Screen, label: string, Icon: typeof Search) => {
+    const active = activeScreen === screen;
+    return <Pressable accessibilityRole="tab" accessibilityLabel={label} aria-selected={active}
+      onPress={() => onSelect(screen)} style={styles.tabButton}>
+      <Icon color={active ? palette.red : palette.muted} size={20} strokeWidth={active ? 2.4 : 1.8} />
+      <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
+    </Pressable>;
+  };
+  return <View style={styles.tabBar}>
+    {tab('community', 'Sightings', Search)}
+    <View style={styles.addPhotoSlot}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Add a photo" onPress={onAddPhoto}
+        style={({ pressed }) => [styles.addPhotoButton, pressed && styles.pressed]}>
+        <Plus color={palette.white} size={28} strokeWidth={2.4} />
+      </Pressable>
     </View>
-  );
+    <View style={styles.navTabGroup}>
+      {tab('leaderboard', 'Leaderboard', Trophy)}
+      {tab('profile', 'My Profile', UserRound)}
+    </View>
+  </View>;
 }
 
 function ProfileScreen({
@@ -1551,7 +1525,7 @@ function ProfileScreen({
       <Pressable onPress={onSignOut} style={styles.signOutButton}>
         <Text style={styles.signOutText}>Sign out</Text>
       </Pressable>
-      <Text style={styles.homeFooter}>LANTERNDIE  /  FIELD LOG  /  V 1.0</Text>
+      <Text style={styles.pageFooter}>LANTERNDIE  /  FIELD LOG  /  V 1.0</Text>
     </ScrollView>
   );
 }
@@ -1567,15 +1541,20 @@ function ProfileStat({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: palette.background },
-  appLayout: { flex: 1 },
+  appLayout: { flex: 1, ...(Platform.OS === 'web' ? { width: '100%', maxWidth: 760, alignSelf: 'center' } as const : {}) },
   screenContainer: { flex: 1 },
   tabBar: { minHeight: 62, flexDirection: 'row', backgroundColor: palette.white, borderTopWidth: 1, borderTopColor: palette.line, paddingHorizontal: 4, paddingTop: 7, paddingBottom: 4 },
+  navTabGroup: { flex: 1, flexDirection: 'row' },
+  addPhotoSlot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  addPhotoButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: palette.red, alignItems: 'center', justifyContent: 'center' },
+  uploadBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.45)', padding: 16 },
+  uploadDialog: { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: palette.paper, borderRadius: 16, overflow: 'hidden' },
   tabButton: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 3, paddingVertical: 3 },
   tabLabel: { color: palette.muted, fontSize: 9, fontWeight: '600' },
   tabLabelActive: { color: palette.red, fontWeight: '800' },
   loadingScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.background },
   loadingText: { marginTop: 14, color: palette.muted, fontSize: 14 },
-  authKeyboard: { flex: 1 },
+  authKeyboard: { flex: 1, ...(Platform.OS === 'web' ? { width: '100%', maxWidth: 760, alignSelf: 'center' } as const : {}) },
   authScroll: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 18, paddingBottom: 28 },
   authTopline: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   appLogo: { width: 42, height: 42 },
@@ -1609,14 +1588,11 @@ const styles = StyleSheet.create({
   previewButtonText: { color: palette.red, fontSize: 13, fontWeight: '800' },
   authFooter: { color: '#93988F', textAlign: 'center', fontSize: 9, fontWeight: '700', letterSpacing: 1.5, marginTop: 24 },
   pageContent: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 34 },
-  greeting: { color: palette.ink, fontSize: 26, marginTop: 5 },
-  avatarButton: { width: 42, height: 42, borderRadius: 21, overflow: 'hidden', backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.red },
-  homeAvatarImage: { width: 40, height: 40 },
   avatarText: { color: palette.red, fontSize: 15, fontWeight: '800' },
   previewBanner: { borderRadius: 8, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, backgroundColor: palette.paleRed, borderLeftWidth: 3, borderLeftColor: palette.red, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 14 },
   previewBannerText: { color: palette.red, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
   previewBannerDetail: { color: '#555555', fontSize: 10, flexShrink: 1 },
-  streakCard: { borderRadius: 16, backgroundColor: palette.black, minHeight: 208, padding: 20, overflow: 'hidden', position: 'relative' },
+  streakCard: { marginBottom: 20, borderRadius: 16, backgroundColor: palette.black, minHeight: 208, padding: 20, overflow: 'hidden', position: 'relative' },
   streakTopline: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   streakLabel: { color: '#E6E6E6', fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
   streakDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: palette.red },
@@ -1629,18 +1605,10 @@ const styles = StyleSheet.create({
   streakMark: { color: '#B8B8B8', fontSize: 10, fontWeight: '700' },
   streakDecor: { position: 'absolute', width: 120, height: 120, borderWidth: 1, borderColor: '#353535', borderRadius: 60, right: -48, top: 48, alignItems: 'center', justifyContent: 'center' },
   streakDecorRing: { width: 82, height: 82, borderWidth: 1, borderColor: '#353535', borderRadius: 41 },
-  statsRow: { borderRadius: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.paper, borderBottomWidth: 1, borderColor: palette.line, paddingVertical: 17, marginBottom: 27 },
-  statBlock: { flex: 1, paddingHorizontal: 13 },
-  statLabel: { color: palette.muted, fontSize: 8, fontWeight: '800', letterSpacing: 1.1 },
-  statValue: { color: palette.ink, fontSize: 28, lineHeight: 34, marginTop: 5 },
-  statFoot: { color: palette.muted, fontSize: 10 },
-  statSeparator: { width: 1, height: 46, backgroundColor: palette.line },
   sectionHeadingRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 13 },
   sectionEyebrow: { color: palette.red, fontSize: 9, fontWeight: '800', letterSpacing: 1.3 },
   sectionTitle: { color: palette.ink, fontSize: 21, marginTop: 4 },
   uploadButton: { borderRadius: 16, minHeight: 86, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 12, flexDirection: 'row', alignItems: 'center' },
-  uploadIcon: { borderRadius: 8, width: 54, height: 58, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.paleRed },
-  uploadPlus: { color: palette.red, fontSize: 30, lineHeight: 34, fontWeight: '300' },
   photoPreview: { borderRadius: 8, width: 70, height: 58, backgroundColor: palette.line },
   uploadCopy: { flex: 1, paddingHorizontal: 13 },
   uploadTitle: { color: palette.ink, fontSize: 14, fontWeight: '700' },
@@ -1675,8 +1643,7 @@ const styles = StyleSheet.create({
   reportInputLabel: { color: palette.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.7, marginTop: 10, marginBottom: 6 },
   reportInput: { borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, color: palette.ink, paddingHorizontal: 10, minHeight: 42, fontSize: 14 },
   captionInput: { minHeight: 72, paddingTop: 10, textAlignVertical: 'top' },
-  homeFooter: { color: '#93988F', fontSize: 8, fontWeight: '700', letterSpacing: 1.1, textAlign: 'center', marginTop: 25 },
-  submissionsLink: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 16, backgroundColor: palette.paper },
+  pageFooter: { color: '#93988F', fontSize: 8, fontWeight: '700', letterSpacing: 1.1, textAlign: 'center', marginTop: 25 },
   sightingAuthorRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10, minHeight: 44 },
   sightingStatus: { color: palette.muted, fontSize: 11, fontWeight: '700', marginVertical: 6 },
   sightingMenu: { top: 54, right: 12 },
