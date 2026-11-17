@@ -50,17 +50,17 @@ async function setup(page: Page) {
 }
 async function openOwnerReports(page: Page) {
   await page.goto('/');
-  await page.getByRole('button', { name: 'View my submissions' }).click();
+  await page.getByRole('tab', { name: 'My submissions', exact: true }).click();
 }
 
 test('owner detector results remain counts and boxes after refresh, with no classifier requests', async ({ page }) => {
   test.skip(!api, 'Requires public Supabase URL; all hosted requests are intercepted.');
   const state = await setup(page);
   await openOwnerReports(page);
-  await expect(page.getByText('2 lanternflies detected', { exact: true })).toBeVisible();
+  await expect(page.getByText('2 lanternflies detected', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('img', {name:'Sighting by Detector QA',exact:true})).toBeVisible();
   await expect(page.getByText(/^(Approved|Awaiting approval)$/)).toHaveCount(0);
-  await page.getByRole('button', { name: 'View identification results for sighting by Detector QA: Results' }).click();
+  await page.getByRole('button', { name: 'Open photo by Detector QA' }).click();
   await expect(page.getByRole('heading', { name: '2 lanternflies detected', exact: true })).toBeVisible();
   await expect(page.getByText('1. Lanternfly', { exact: true })).toBeVisible();
   await expect(page.getByText('2. Lanternfly', { exact: true })).toBeVisible();
@@ -69,8 +69,8 @@ test('owner detector results remain counts and boxes after refresh, with no clas
   await expect(page.getByText(/LIKELY DEAD|Retry photo check|Checking photo…/)).toHaveCount(0);
   await page.getByRole('button', { name: 'Close identification results' }).click();
   await page.reload();
-  await page.getByRole('button', { name: 'View my submissions' }).click();
-  await expect(page.getByText('2 lanternflies detected', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'My submissions', exact: true }).click();
+  await expect(page.getByText('2 lanternflies detected', { exact: true })).toHaveCount(0);
   await page.waitForTimeout(1800); // Regression: used to schedule the classifier after 1500ms.
   expect(state.classifierCalls).toEqual([]);
   expect(state.rpcNames).toEqual([]);
@@ -80,7 +80,7 @@ test('no lanternfly detections show the existing no-detection result, without cl
   test.skip(!api, 'Requires public Supabase URL; all hosted requests are intercepted.');
   const state = await setup(page); state.detectionStatus = 'not_detected';
   await openOwnerReports(page);
-  await page.getByRole('button', { name: 'View identification results for sighting by Detector QA: Results' }).click();
+  await page.getByRole('button', { name: 'Open photo by Detector QA' }).click();
   await expect(page.getByText('No lanternfly detected', { exact: true }).first()).toBeVisible();
   expect(state.classifierCalls).toEqual([]);
 });
@@ -90,7 +90,9 @@ test('failed background detection retains its existing retry path without runnin
   const state = await setup(page); state.detectionStatus = 'failed'; state.failed = true;
   await openOwnerReports(page);
   await page.getByRole('button', { name: 'Retry background checks', exact: true }).click();
-  await expect(page.getByText('2 lanternflies detected', { exact: true })).toBeVisible();
+  await expect(page.getByText('2 lanternflies detected', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open photo by Detector QA' }).click();
+  await expect(page.getByRole('heading', { name: '2 lanternflies detected', exact: true })).toBeVisible();
   expect(state.retries).toBe(1);
   expect(state.classifierCalls).toEqual([]);
 });
