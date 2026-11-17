@@ -78,7 +78,7 @@ for (const width of [320, 390, 711, 712, 1440]) {
       expect(secondBounds.y - firstBounds.y - firstBounds.height).toBeCloseTo(24, 1);
     }
     await expect(page.getByTestId(`sighting-${ids[4]}`)).toHaveCSS('width', `${expectedWidth}px`);
-    expect((await first.boundingBox())!.height).toBeLessThanOrEqual(300);
+    expect((await first.boundingBox())!.height).toBeLessThanOrEqual(352);
     const upvote = first.getByRole('button', { name: 'Upvote report' });
     await expect(upvote).toHaveCSS('height', '44px');
     const photoBounds = (await first.getByRole('button', { name: /Open photo/ }).boundingBox())!;
@@ -86,7 +86,7 @@ for (const width of [320, 390, 711, 712, 1440]) {
     if (expectedWidth >= 316) {
       expect(voteBounds.y + voteBounds.height).toBeCloseTo(photoBounds.y + photoBounds.height, 1);
       expect(voteBounds.x).toBeGreaterThanOrEqual(photoBounds.x + photoBounds.width);
-      expect((await first.boundingBox())!.height).toBeLessThanOrEqual(240);
+      expect((await first.boundingBox())!.height).toBeLessThanOrEqual(292);
     } else {
       expect(voteBounds.y).toBeGreaterThanOrEqual(photoBounds.y + photoBounds.height);
     }

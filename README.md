@@ -62,6 +62,14 @@ Supabase project's SQL Editor before testing this feature. Requests and friends
 lists are visible only to their participants. Friendship does not grant access
 to private reports or sign-in emails.
 
+Each post has a **Comments** section on Explore and member profiles. Signed-in
+members can comment on published posts (up to 1,000 characters) and delete their
+own comments. Threads load on opening, newest first, with **Load more comments**
+and **Refresh comments** controls. Apply only
+`supabase/migrations/20261121000000_post_comments.sql` in the existing project's
+SQL Editor to enable comments. Access follows the post: making it private also
+hides its comments from other members. Comments do not affect field points.
+
 Google sign-in uses the provider configured in Supabase. Keep its OAuth client
 secret in Google/Supabase, never Expo public variables. Its Google callback is
 `https://<project-ref>.supabase.co/auth/v1/callback`. Supabase's redirect allowlist

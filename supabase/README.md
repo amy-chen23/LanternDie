@@ -30,6 +30,24 @@ migration remains unapplied; report images are not dependent on it.
 
 ## Migration history
 
+### Post comments
+
+Install `migrations/20261121000000_post_comments.sql` separately in the SQL Editor.
+Comments use `report_comments` with authenticated access through report RLS.
+Only the caller's author ID is accepted; new comments require a published,
+accessible report. Users may delete their own comments but cannot edit others'
+comments, author IDs, or timestamps. Post/account deletion cascades to comments.
+The body must contain non-whitespace text and be at most 1,000 characters.
+Display names of accessible commenters are readable even without public uploads;
+Auth emails are never returned. No friend migration is required for comments.
+
+The UI loads pages of 20 comments on demand, with a descending timestamp/ID
+cursor. Comment creation reuses a per-draft ID after an uncertain response to
+avoid duplicate posts. `tests/browser/comments.spec.ts` uses mocked transport
+to test publishing, failure recovery, pagination and deletion across feed/profile
+on phone and desktop layouts. `tests/comments-access.sql` checks database policies
+in an empty disposable PostgreSQL database, never the shared project.
+
 ### Friends and requests
 
 Install `migrations/20261120000000_friendships.sql` separately in the SQL Editor

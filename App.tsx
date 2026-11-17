@@ -1088,7 +1088,7 @@ function CommunityScreen({ previewMode, reports, myReports, view, onChangeView,
               onPress={() => { setMenuReportId(current => current === report.id ? null : report.id); setConfirmDeleteId(null); }}
               style={styles.reportMenuButton}><Ellipsis size={22} color={palette.ink} /></Pressable> : null}
           </View>
-          <SightingBody report={report} inlineVotes={inlineVotes} votes={voteControls(report)} onOpenPhoto={() => setResultsReport(report)} />
+          <SightingBody report={report} userId={userId} inlineVotes={inlineVotes} votes={voteControls(report)} onOpenPhoto={() => setResultsReport(report)} />
           {report.user_id === userId ? <ReportIdentification report={report} onChanged={onIdentificationChanged} actionsOnly /> : null}
           {editingReportId === report.id ? <View style={styles.editPanel}>
             <ReportFields details={editingDetails} onChange={onChangeEditingDetails} />

@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-n
 import { Text } from '../lib/typography';
 import type { Report } from '../lib/reports';
 import { lanternflyThumbnailFrame } from '../lib/thumbnail-crop';
+import { PostComments } from './PostComments';
 const palette = { background: '#F5F5F5', paper: '#FFFFFF', ink: '#111111', muted: '#696969', red: '#F72D33', paleRed: '#FDE8E9', line: '#E2E2E2', black: '#111111', white: '#FFFFFF' };
 
 export const FEED_THUMBNAIL_SIZE = 144;
@@ -66,8 +67,8 @@ export function ReportVoteControls({ report, disabled = false, previewMode = fal
     </View>;
   }
 
-export function SightingBody({ report, inlineVotes, votes, onOpenPhoto }: {
-  report: Report; inlineVotes: boolean; votes: ReactNode; onOpenPhoto: () => void;
+export function SightingBody({ report, inlineVotes, votes, onOpenPhoto, userId }: {
+  report: Report; inlineVotes: boolean; votes: ReactNode; onOpenPhoto: () => void; userId: string | null;
 }) {
   return <>
           <View style={styles.communityBody}>
@@ -86,6 +87,8 @@ export function SightingBody({ report, inlineVotes, votes, onOpenPhoto }: {
             </View>
           </View>
           {!inlineVotes ? <View style={styles.communityFooter}>{votes}</View> : null}
+          <PostComments key={`${userId ?? 'preview'}:${report.id}`} reportId={report.id} userId={userId}
+            canComment={report.workflow_status === 'published'} />
   </>;
 }
 

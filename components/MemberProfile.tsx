@@ -128,7 +128,7 @@ export function MemberProfile({ author, viewerId, onClose, backLabel = 'Back to 
                 </View>
                 <Text numberOfLines={1} style={styles.authorName}>{profile.name}</Text>
               </View>
-              <SightingBody report={report} inlineVotes={availableCardWidth >= 316} onOpenPhoto={() => setResultsReport(report)}
+              <SightingBody report={report} userId={viewerId} inlineVotes={availableCardWidth >= 316} onOpenPhoto={() => setResultsReport(report)}
                 votes={<ReportVoteControls report={report} disabled={voting} onVote={(item, value) => void vote(item, value)} />} />
             </View>)}
           </View>
