@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -13,7 +13,6 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { Text, TextInput, useAppFonts } from './lib/typography';
@@ -47,7 +46,7 @@ import { MemberProfile } from './components/MemberProfile';
 import { FieldPoints } from './components/FieldPoints';
 import { FriendsPanel } from './components/Friends';
 import type { MemberIdentity } from './lib/friends';
-import { lanternflyThumbnailFrame } from './lib/thumbnail-crop';
+import { SightingBody, ReportVoteControls } from './components/SightingTile';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -94,10 +93,6 @@ function todayDate(): string {
 
 function newReportDetails(): ReportDetails {
   return { observed_on: todayDate(), place_name: '', caption: '' };
-}
-
-function reportScore(report: Report): number {
-  return report.upvotes - report.downvotes;
 }
 
 function getDisplayName(value: unknown): string {
@@ -533,6 +528,12 @@ export default function App() {
       {memberProfile && session ? <MemberProfile
         key={`${session.user.id}:${memberProfile.user_id}`} author={memberProfile} viewerId={session.user.id}
         backLabel={screen === 'profile' ? 'Back to my profile' : 'Back to sightings'}
+        onReportUpdated={updated => {
+          const sync = (current: Report[]) => current.map(report => report.id === updated.id
+            ? { ...report, upvotes: updated.upvotes, downvotes: updated.downvotes, my_vote: updated.my_vote } : report);
+          setPublicReports(sync);
+          setReports(sync);
+        }}
         onClose={() => setMemberProfile(null)} /> : null}
       <View style={styles.appLayout}>
         <View style={styles.screenContainer}>
@@ -902,48 +903,6 @@ function ReportFields({ details, onChange }: { details: ReportDetails; onChange:
   </View>;
 }
 
-const FEED_THUMBNAIL_SIZE = 144;
-
-const CommunityPhoto = memo(function CommunityPhoto({ report }: { report: Report }) {
-  const uri = report.photo_url!;
-  const [photoSize, setPhotoSize] = useState<{ uri: string; width: number; height: number } | null>(null);
-  const frame = lanternflyThumbnailFrame(report, FEED_THUMBNAIL_SIZE, photoSize?.uri === uri ? photoSize : null);
-  const [failedUri, setFailedUri] = useState<string | null>(null);
-  const hasBoxes = report.insects.length > 0 || (!report.insects_ready && report.identification?.status === 'detected' && report.identification.detections.length > 0);
-  const needsPhotoSize = hasBoxes && !(report.identification?.image_width && report.identification?.image_height);
-  useEffect(() => {
-    if (!needsPhotoSize) return;
-    let active = true;
-    Image.getSize(uri, (width, height) => {
-      if (active) setPhotoSize({ uri, width, height });
-    }, () => {});
-    return () => { active = false; };
-  }, [uri, needsPhotoSize]);
-  return uri !== failedUri ? <Image source={{ uri }} resizeMode="contain"
-    style={frame ? [styles.communityCroppedPhoto, frame] : styles.communityPhoto}
-    accessibilityLabel={`Sighting by ${report.author_name}`} onError={() => setFailedUri(uri)} /> : (
-    <View style={[styles.communityPhoto, styles.communityPhotoUnavailable]}>
-      <Text style={styles.communityPhotoUnavailableText}>Photo unavailable</Text>
-    </View>
-  );
-});
-
-function FeedCaption({ caption }: { caption: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const [naturalHeight, setNaturalHeight] = useState(0);
-  const { fontScale } = useWindowDimensions();
-  const overflowing = naturalHeight > 36 * fontScale + 1;
-  return <View style={styles.communityCaptionContainer}>
-    <Text aria-hidden accessible={false} pointerEvents="none" style={[styles.communityCaption, styles.captionMeasurement]}
-      onLayout={event => setNaturalHeight(event.nativeEvent.layout.height)}>{caption}</Text>
-    <Text testID="feed-caption" numberOfLines={expanded ? undefined : 2} style={styles.communityCaption}>{caption}</Text>
-    {overflowing ? <Pressable accessibilityRole="button" aria-expanded={expanded}
-      onPress={() => setExpanded(current => !current)} style={styles.captionToggle}>
-      <Text style={styles.captionToggleText}>{expanded ? 'Show less' : 'Show more'}</Text>
-    </Pressable> : null}
-  </View>;
-}
-
 function CommunityAuthor({ report, onPress }: { report: Report; onPress: () => void }) {
   const [failedUri, setFailedUri] = useState<string | null>(null);
   const photoUri = report.author_photo_url;
@@ -1051,19 +1010,7 @@ function CommunityScreen({ previewMode, reports, myReports, view, onChangeView,
     ? [...myReports, ...reports].find(report => report.id === resultsReport.id) ?? resultsReport : null;
   const reportBusy = savingReport || deletingReportId !== null;
   function voteControls(report: Report) {
-    if (previewMode || report.workflow_status === 'rejected'
-      || (report.workflow_status !== 'published' && report.identification?.status !== 'detected')) return null;
-    return <View style={styles.actionRow}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Upvote report" accessibilityState={{ selected: report.my_vote === 1 }}
-        disabled={Boolean(busyId)} onPress={() => onVote(report, 1)} style={[styles.voteButton, report.my_vote === 1 && styles.voteButtonSelected]}>
-        <Text style={report.my_vote === 1 ? styles.voteArrowSelected : styles.voteArrow}>↑</Text>
-      </Pressable>
-      <Text accessibilityLabel={`Score ${reportScore(report)}`} style={styles.communityScore}>{reportScore(report)}</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel="Downvote report" accessibilityState={{ selected: report.my_vote === -1 }}
-        disabled={Boolean(busyId)} onPress={() => onVote(report, -1)} style={[styles.voteButton, report.my_vote === -1 && styles.voteButtonSelected]}>
-        <Text style={report.my_vote === -1 ? styles.voteArrowSelected : styles.voteArrow}>↓</Text>
-      </Pressable>
-    </View>;
+    return <ReportVoteControls report={report} previewMode={previewMode} disabled={Boolean(busyId)} onVote={onVote} />;
   }
 
   const displayed = view === 'mine' ? myReports.filter(report => matchesSubmissionFilter(report, submissionFilter))
@@ -1141,22 +1088,7 @@ function CommunityScreen({ previewMode, reports, myReports, view, onChangeView,
               onPress={() => { setMenuReportId(current => current === report.id ? null : report.id); setConfirmDeleteId(null); }}
               style={styles.reportMenuButton}><Ellipsis size={22} color={palette.ink} /></Pressable> : null}
           </View>
-          <View style={styles.communityBody}>
-            <Pressable accessibilityRole="button" accessibilityLabel={report.photo_url ? `Open photo by ${report.author_name}` : `Open photo results by ${report.author_name}`}
-              onPress={() => setResultsReport(report)} style={({ pressed }) => [styles.communityPhotoContainer, pressed && styles.pressed]}>
-              {report.photo_url ? <CommunityPhoto report={report} /> : <View style={[styles.communityPhoto, styles.communityPhotoUnavailable]}>
-                <Text style={styles.communityPhotoUnavailableText}>Photo unavailable</Text>
-              </View>}
-            </Pressable>
-            <View style={styles.communityDetails}>
-              <View>
-                {report.caption ? <FeedCaption caption={report.caption} /> : null}
-                <Text style={styles.emptyActivityCopy}>Observed {report.observed_on}{report.place_name ? ` · ${report.place_name}` : ''}</Text>
-              </View>
-              {inlineVotes ? <View style={styles.inlineVoteSlot}>{voteControls(report)}</View> : null}
-            </View>
-          </View>
-          {!inlineVotes ? <View style={styles.communityFooter}>{voteControls(report)}</View> : null}
+          <SightingBody report={report} inlineVotes={inlineVotes} votes={voteControls(report)} onOpenPhoto={() => setResultsReport(report)} />
           {report.user_id === userId ? <ReportIdentification report={report} onChanged={onIdentificationChanged} actionsOnly /> : null}
           {editingReportId === report.id ? <View style={styles.editPanel}>
             <ReportFields details={editingDetails} onChange={onChangeEditingDetails} />
@@ -1751,30 +1683,10 @@ const styles = StyleSheet.create({
   feedContent: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 40 },
   communityGrid: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 24 },
   communityCard: { borderRadius: 16, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, padding: 16 },
-  communityPhoto: { width: FEED_THUMBNAIL_SIZE, height: FEED_THUMBNAIL_SIZE },
-  communityCroppedPhoto: { position: 'absolute' },
-  communityPhotoUnavailable: { alignItems: 'center', justifyContent: 'center', padding: 8 },
-  communityPhotoUnavailableText: { color: palette.muted, fontSize: 11, textAlign: 'center' },
-  communityBody: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  communityDetails: { flex: 1, minWidth: 0, minHeight: FEED_THUMBNAIL_SIZE, justifyContent: 'space-between' },
-  inlineVoteSlot: { marginTop: 8 },
-  communityFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   communityAuthor: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   communityAuthorAvatar: { width: 32, height: 32, borderRadius: 16, overflow: 'hidden', backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center' },
   communityAuthorPhoto: { width: 32, height: 32, resizeMode: 'cover' },
   communityAuthorName: { flex: 1 },
-  communityPhotoContainer: { width: FEED_THUMBNAIL_SIZE, height: FEED_THUMBNAIL_SIZE, flexShrink: 0, borderRadius: 8, overflow: 'hidden', backgroundColor: palette.background },
-  communityCaptionContainer: { marginTop: 4 },
-  communityCaption: { color: palette.ink, fontSize: 13, lineHeight: 18 },
-  captionMeasurement: { position: 'absolute', top: 0, left: 0, width: '100%', opacity: 0 },
-  captionToggle: { minHeight: 44, minWidth: 44, alignSelf: 'flex-start', justifyContent: 'center' },
-  captionToggleText: { color: palette.red, fontSize: 12, fontWeight: '700' },
-  actionRow: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
-  voteButton: { width: 44, height: 44, borderRadius: 19, borderWidth: 1, borderColor: palette.line, alignItems: 'center', justifyContent: 'center' },
-  voteButtonSelected: { borderColor: palette.red, backgroundColor: palette.paleRed },
-  voteArrow: { color: palette.ink, fontSize: 12, lineHeight: 18, fontWeight: '700' },
-  voteArrowSelected: { color: palette.red, fontSize: 12, lineHeight: 18, fontWeight: '700' },
-  communityScore: { color: palette.ink, fontSize: 14, fontWeight: '800', textAlign: 'center', minWidth: 30 },
   communityEmptyMark: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.paleRed, alignItems: 'center', justifyContent: 'center', marginBottom: 11 },
   communityEmptyGlyph: { color: palette.red, fontSize: 24, lineHeight: 28, fontWeight: '300' },
   communitySectionGap: { marginTop: 29 },
