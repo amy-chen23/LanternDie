@@ -13,11 +13,13 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   View,
 } from 'react-native';
 import { Text, TextInput, useAppFonts } from './lib/typography';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
@@ -36,6 +38,7 @@ import Trophy from 'lucide-react-native/icons/trophy';
 import UserRound from 'lucide-react-native/icons/user-round';
 import { deleteOwnedReport } from './lib/report-deletion';
 import { loadReports, loadPublicReports, loadReportEngagement, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
+import { extractPhotoMetadata, type ReportLocationMetadata } from './lib/photo-metadata';
 import { matchesSubmissionFilter, type SubmissionFilter } from './lib/submission-filters';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { loadLeaderboard, type LeaderboardEntry, type LeaderboardPeriod } from './lib/leaderboard';
@@ -127,6 +130,9 @@ export default function App() {
   const [editingDetails, setEditingDetails] = useState<ReportDetails>(newReportDetails);
   const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [uploadError, setUploadError] = useState('');
+  const [uploadLocationMetadata, setUploadLocationMetadata] = useState<ReportLocationMetadata>(() => extractPhotoMetadata(null));
+  const [requestingUploadLocation, setRequestingUploadLocation] = useState(false);
+  const [uploadLocationError, setUploadLocationError] = useState('');
   const pickingPhoto = useRef(false);
   const photoSelectionRequest = useRef(0);
   const uploadInFlight = useRef(false);
@@ -299,7 +305,7 @@ export default function App() {
   }
 
   async function choosePhoto() {
-    if (pickingPhoto.current || uploadInFlight.current) return;
+    if (pickingPhoto.current || uploadInFlight.current || requestingUploadLocation) return;
     pickingPhoto.current = true;
     const selectionRequest = ++photoSelectionRequest.current;
     try {
@@ -311,16 +317,49 @@ export default function App() {
         }
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.85,
+        mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.85, exif: true,
       });
       if (!result.canceled && selectionRequest === photoSelectionRequest.current) {
         setUploadError('');
         setPhotoAsset(result.assets[0]);
+        setUploadLocationMetadata(extractPhotoMetadata(result.assets[0].exif));
+        setUploadLocationError('');
       }
     } catch (error) {
       Alert.alert('Could not choose photo', error instanceof Error ? error.message : 'Please try again.');
     } finally {
       if (selectionRequest === photoSelectionRequest.current) pickingPhoto.current = false;
+    }
+  }
+
+  async function useCurrentLocationForReport() {
+    if (!photoAsset || previewMode || uploadInFlight.current || requestingUploadLocation) return;
+    setRequestingUploadLocation(true);
+    setUploadLocationError('');
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== Location.PermissionStatus.GRANTED) {
+        setUploadLocationError('Location permission was denied. You can still submit without device location.');
+        return;
+      }
+      const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const capturedAt = new Date(fix.timestamp);
+      if (!Number.isFinite(fix.timestamp) || Number.isNaN(capturedAt.getTime())) {
+        throw new Error('The device returned an invalid location timestamp.');
+      }
+      setUploadLocationMetadata(current => ({
+        ...current,
+        latitude: fix.coords.latitude,
+        longitude: fix.coords.longitude,
+        source: 'device',
+        deviceLocationCapturedAt: capturedAt.toISOString(),
+        accuracyMeters: fix.coords.accuracy,
+        shareApproximate: false,
+      }));
+    } catch (error) {
+      setUploadLocationError(error instanceof Error ? `Could not get device location: ${error.message}` : 'Could not get device location.');
+    } finally {
+      setRequestingUploadLocation(false);
     }
   }
 
@@ -331,10 +370,12 @@ export default function App() {
     setUploadError('');
     try {
       const userId = session.user.id;
-      await submitReport(userId, photoAsset, reportDetails);
+      await submitReport(userId, photoAsset, reportDetails, uploadLocationMetadata);
       if (activeUserId.current === userId) {
         setPhotoAsset(null);
         setReportDetails(newReportDetails());
+        setUploadLocationMetadata(extractPhotoMetadata(null));
+        setUploadLocationError('');
         // The database already enqueued detection. No inference runs on this device.
         openMySubmissions();
         void refreshReports(userId, true);
@@ -348,11 +389,13 @@ export default function App() {
   }
 
   function cancelReportUpload() {
-    if (uploadInFlight.current) return;
+    if (uploadInFlight.current || requestingUploadLocation) return;
     photoSelectionRequest.current++;
     pickingPhoto.current = false;
     setPhotoAsset(null);
     setReportDetails(newReportDetails());
+    setUploadLocationMetadata(extractPhotoMetadata(null));
+    setUploadLocationError('');
     setUploadError('');
   }
 
@@ -487,6 +530,8 @@ export default function App() {
     setUploadError('');
     setPreviewMode(false);
     setPhotoAsset(null);
+    setUploadLocationMetadata(extractPhotoMetadata(null));
+    setUploadLocationError('');
     setReportDetails(newReportDetails());
     setEditingReportId(null);
     setReports([]);
@@ -592,7 +637,11 @@ export default function App() {
         <BottomNavigation activeScreen={screen} onSelect={setScreen} onAddPhoto={choosePhoto} />
         {photoAsset ? <ReportUploadDialog
           previewMode={previewMode} photoUri={photoAsset.uri} reportDetails={reportDetails}
+          locationMetadata={uploadLocationMetadata} locationError={uploadLocationError}
+          requestingLocation={requestingUploadLocation}
           onChangeReportDetails={setReportDetails} reportError={uploadError} savingReport={savingReport}
+          onUseCurrentLocation={useCurrentLocationForReport}
+          onToggleShareApproximate={shareApproximate => setUploadLocationMetadata(current => ({ ...current, shareApproximate }))}
           onChoosePhoto={choosePhoto} onSubmitReport={saveReport} onCancelReportUpload={cancelReportUpload}
         /> : null}
       </View>
@@ -815,11 +864,14 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
 }
 
 function ReportUploadDialog({
-  previewMode, photoUri, reportDetails, onChangeReportDetails, reportError, savingReport,
+  previewMode, photoUri, reportDetails, locationMetadata, locationError, requestingLocation,
+  onChangeReportDetails, reportError, savingReport, onUseCurrentLocation, onToggleShareApproximate,
   onChoosePhoto, onSubmitReport, onCancelReportUpload,
 }: {
   previewMode: boolean; photoUri: string; reportDetails: ReportDetails;
+  locationMetadata: ReportLocationMetadata; locationError: string; requestingLocation: boolean;
   onChangeReportDetails: (details: ReportDetails) => void; reportError: string; savingReport: boolean;
+  onUseCurrentLocation: () => void; onToggleShareApproximate: (share: boolean) => void;
   onChoosePhoto: () => void; onSubmitReport: () => void; onCancelReportUpload: () => void;
 }) {
   useEffect(() => {
@@ -844,7 +896,7 @@ function ReportUploadDialog({
 
           <Pressable
             accessibilityRole="button"
-            disabled={savingReport} onPress={onChoosePhoto}
+            disabled={savingReport || requestingLocation} onPress={onChoosePhoto}
             style={({ pressed }) => [styles.uploadButton, pressed && styles.pressed]}
           >
             <Image source={{ uri: photoUri }} style={styles.photoPreview} />
@@ -864,18 +916,56 @@ function ReportUploadDialog({
           ) : null}
           {photoUri ? (
             <>
-              {!previewMode ? <ReportFields details={reportDetails} onChange={onChangeReportDetails} /> : null}
+              {!previewMode ? <>
+                <ReportFields details={reportDetails} onChange={onChangeReportDetails} />
+                <View style={styles.uploadLocationPanel}>
+                  <Text style={styles.uploadLocationTitle}>PHOTO LOCATION</Text>
+                  {locationMetadata.photoTakenAtLocal ? <Text style={styles.uploadLocationCopy}>
+                    Photo capture time: {locationMetadata.photoTakenAtLocal.replace('T', ' ')} (camera local time; no timezone)
+                  </Text> : <Text style={styles.uploadLocationCopy}>No photo capture time found in metadata.</Text>}
+                  {locationMetadata.source === 'photo_exif' ? <Text style={styles.uploadLocationCopy}>
+                    GPS was found in the photo metadata. Its exact coordinates will be stored privately.
+                  </Text> : locationMetadata.source === 'device' ? <Text style={styles.uploadLocationCopy}>
+                    Current device location added{locationMetadata.accuracyMeters === null ? '.' : ` (accuracy ±${Math.round(locationMetadata.accuracyMeters)} m).`} Exact coordinates will be stored privately.
+                  </Text> : <>
+                    <Text style={styles.uploadLocationCopy}>
+                      No photo GPS was found. You can explicitly add the device&apos;s current location; it may differ from where the photo was taken.
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={requestingLocation || savingReport}
+                      onPress={onUseCurrentLocation}
+                      style={({ pressed }) => [styles.uploadLocationButton, pressed && styles.pressed, (requestingLocation || savingReport) && styles.disabled]}
+                    >
+                      {requestingLocation ? <><ActivityIndicator color={palette.red} /><Text style={styles.uploadLocationButtonText}>Getting location…</Text></>
+                        : <Text style={styles.uploadLocationButtonText}>Use my current location</Text>}
+                    </Pressable>
+                  </>}
+                  {locationMetadata.source ? <View style={styles.locationShareRow}>
+                    <View style={styles.locationShareCopy}>
+                      <Text style={styles.uploadLocationTitle}>Allow approximate public map sharing</Text>
+                      <Text style={styles.uploadLocationCopy}>Off by default. If enabled, this report may appear as an approximate marker when map pins are available.</Text>
+                    </View>
+                    <Switch
+                      accessibilityLabel="Allow approximate public map sharing"
+                      value={locationMetadata.shareApproximate}
+                      onValueChange={onToggleShareApproximate}
+                    />
+                  </View> : null}
+                  {locationError ? <Text accessibilityRole="alert" style={styles.locationError}>{locationError}</Text> : null}
+                </View>
+              </> : null}
               <View style={styles.reportUploadActions}>
                 {!previewMode ? <Pressable
                   accessibilityRole="button"
-                  disabled={savingReport}
+                  disabled={savingReport || requestingLocation}
                   onPress={onSubmitReport}
-                  style={[styles.primaryButton, styles.reportSubmitButton, savingReport && styles.disabled]}
+                  style={[styles.primaryButton, styles.reportSubmitButton, (savingReport || requestingLocation) && styles.disabled]}
                 >
                   {savingReport ? <><ActivityIndicator color={palette.white} /><Text style={styles.primaryButtonText}>Uploading…</Text></> : <Text style={styles.primaryButtonText}>Submit report</Text>}
                 </Pressable> : null}
-                <Pressable accessibilityRole="button" accessibilityLabel="Cancel report upload" disabled={savingReport}
-                  onPress={onCancelReportUpload} style={[styles.cancelUploadButton, previewMode && styles.cancelUploadButtonFull, savingReport && styles.disabled]}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Cancel report upload" disabled={savingReport || requestingLocation}
+                  onPress={onCancelReportUpload} style={[styles.cancelUploadButton, previewMode && styles.cancelUploadButtonFull, (savingReport || requestingLocation) && styles.disabled]}>
                   <Text style={styles.cancelUploadText}>Cancel</Text>
                 </Pressable>
               </View>
@@ -885,7 +975,9 @@ function ReportUploadDialog({
 
           <View style={styles.privacyNote}>
             <Text style={styles.privacyGlyph}>i</Text>
-            <Text style={styles.privacyText}>Location is optional place text. Device GPS is not collected.</Text>
+            <Text style={styles.privacyText}>{previewMode
+              ? 'This preview stays on your device; no location metadata is saved.'
+              : 'Exact photo or device coordinates are stored privately. Public map sharing is off unless you opt in to an approximate marker.'}</Text>
           </View>
 
         </ScrollView>
@@ -1657,6 +1749,14 @@ const styles = StyleSheet.create({
   deleteActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 },
   editPanel: { padding: 12 },
   reportFields: { borderRadius: 16, padding: 12, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, marginVertical: 10 },
+  uploadLocationPanel: { borderRadius: 12, padding: 12, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, marginBottom: 10 },
+  uploadLocationTitle: { color: palette.ink, fontSize: 11, fontWeight: '800' },
+  uploadLocationCopy: { color: palette.muted, fontSize: 11, lineHeight: 16, marginTop: 6 },
+  uploadLocationButton: { minHeight: 42, borderWidth: 1, borderColor: palette.red, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10 },
+  uploadLocationButtonText: { color: palette.red, fontSize: 12, fontWeight: '700' },
+  locationShareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, borderTopColor: palette.line, marginTop: 12, paddingTop: 12 },
+  locationShareCopy: { flex: 1 },
+  locationError: { color: '#B4232A', fontSize: 11, lineHeight: 16, marginTop: 8 },
   reportInputLabel: { color: palette.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.7, marginTop: 10, marginBottom: 6 },
   reportInput: { borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, color: palette.ink, paddingHorizontal: 10, minHeight: 42, fontSize: 14 },
   captionInput: { minHeight: 72, paddingTop: 10, textAlignVertical: 'top' },

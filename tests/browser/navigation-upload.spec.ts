@@ -77,6 +77,8 @@ for (const width of [390, 1440]) {
 }
 
 test('upload errors retain the draft, and a successful retry opens My submissions', async ({ page }) => {
+  await page.context().grantPermissions(['geolocation'], { origin: 'http://127.0.0.1:4173' });
+  await page.context().setGeolocation({ latitude: 37.5, longitude: -122.25, accuracy: 18 });
   await openApp(page);
   let uploads = 0;
   let releaseUpload: () => void = () => {};
@@ -87,14 +89,22 @@ test('upload errors retain the draft, and a successful retry opens My submission
     await pending;
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ Key: 'fixture.jpg' }) });
   });
-  await page.route(`${api}/rest/v1/reports?**`, route => {
-    if (route.request().method() === 'POST') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: '11111111-1111-1111-1111-111111111111' }) });
-    return route.fallback();
+  const submittedLocations: Record<string, unknown>[] = [];
+  await page.route(`${api}/rest/v1/rpc/submit_report_with_location_metadata`, route => {
+    submittedLocations.push(route.request().postDataJSON());
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify('11111111-1111-1111-1111-111111111111') });
   });
   const picker = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Add a photo', exact: true }).click();
   await (await picker).setFiles(photo);
   const dialog = page.getByRole('dialog', { name: 'Log a lanternfly' });
+  await dialog.getByRole('button', { name: 'Use my current location' }).click();
+  await expect(dialog.getByText(/Current device location added/)).toBeVisible();
+  const approximateSharingSwitch = dialog.getByRole('switch', { name: 'Allow approximate public map sharing' });
+  await expect(approximateSharingSwitch).not.toBeChecked();
+  await approximateSharingSwitch.check();
+  await expect(approximateSharingSwitch).toBeChecked();
+  await approximateSharingSwitch.uncheck();
   await dialog.getByRole('textbox', { name: 'Report caption' }).fill('Keep my draft');
   await dialog.getByRole('button', { name: 'Submit report' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Please retry this upload');
@@ -107,5 +117,13 @@ test('upload errors retain the draft, and a successful retry opens My submission
   releaseUpload();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'My submissions', exact: true })).toHaveAttribute('aria-selected', 'true');
+  const submittedLocation = submittedLocations[submittedLocations.length - 1];
+  expect(submittedLocation).toMatchObject({
+    p_latitude: 37.5,
+    p_longitude: -122.25,
+    p_location_source: 'device',
+    p_share_approximate: false,
+  });
+  expect(typeof submittedLocation?.p_device_location_captured_at).toBe('string');
   expect(uploads).toBe(2);
 });
