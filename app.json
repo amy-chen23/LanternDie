@@ -31,7 +31,13 @@
         }
       ],
       "expo-asset",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "LanternDie uses your location to center the map when you open it."
+        }
+      ]
     ]
   }
 }

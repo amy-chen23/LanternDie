@@ -27,6 +27,7 @@ import CircleHelp from 'lucide-react-native/icons/circle-question-mark';
 import Ellipsis from 'lucide-react-native/icons/ellipsis';
 import Plus from 'lucide-react-native/icons/plus';
 import ListFilter from 'lucide-react-native/icons/list-filter';
+import MapPin from 'lucide-react-native/icons/map-pin';
 import Pencil from 'lucide-react-native/icons/pencil';
 import Search from 'lucide-react-native/icons/search';
 import RotateCw from 'lucide-react-native/icons/rotate-cw';
@@ -45,6 +46,8 @@ import { PageHeader } from './components/PageHeader';
 import { MemberProfile } from './components/MemberProfile';
 import { FieldPoints } from './components/FieldPoints';
 import { FriendsPanel } from './components/Friends';
+import { LocationMap } from './components/LocationMap';
+import { useDeviceLocation } from './hooks/useDeviceLocation';
 import type { MemberIdentity } from './lib/friends';
 import { SightingBody, ReportVoteControls } from './components/SightingTile';
 
@@ -62,7 +65,7 @@ const palette = {
   white: '#FFFFFF',
 };
 
-type Screen = 'community' | 'leaderboard' | 'profile';
+type Screen = 'community' | 'map' | 'leaderboard' | 'profile';
 type SightingsView = 'explore' | 'mine';
 type AuthMode = 'sign-in' | 'sign-up';
 const previewLeaderboardRankings: Record<LeaderboardPeriod, LeaderboardEntry[]> = {
@@ -114,6 +117,7 @@ export default function App() {
   const [previewMode, setPreviewMode] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [screen, setScreen] = useState<Screen>('community');
+  const deviceLocation = useDeviceLocation(screen === 'map');
   const [memberProfile, setMemberProfile] = useState<MemberIdentity | null>(null);
   useEffect(() => { setMemberProfile(null); }, [session?.user.id, screen]);
   const activeScreen = useRef<Screen>(screen);
@@ -563,6 +567,8 @@ export default function App() {
               onRefresh={refreshActiveSightings} onVote={(report, value) => void changeVote(report, value)} />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen previewMode={previewMode} />
+          ) : screen === 'map' ? (
+            <LocationMap {...deviceLocation} />
           ) : (
             <ProfileScreen
               key={session?.user.id ?? 'preview'}
@@ -1342,7 +1348,10 @@ function BottomNavigation({ activeScreen, onSelect, onAddPhoto }: {
     </Pressable>;
   };
   return <View style={styles.tabBar}>
-    {tab('community', 'Sightings', Search)}
+    <View style={styles.navTabGroup}>
+      {tab('community', 'Sightings', Search)}
+      {tab('map', 'Map', MapPin)}
+    </View>
     <View style={styles.addPhotoSlot}>
       <Pressable accessibilityRole="button" accessibilityLabel="Add a photo" onPress={onAddPhoto}
         style={({ pressed }) => [styles.addPhotoButton, pressed && styles.pressed]}>

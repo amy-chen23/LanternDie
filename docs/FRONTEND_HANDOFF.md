@@ -12,6 +12,10 @@ Use [current rollout](IDENTIFICATION_SOCIAL_ONLY.md) and [QA checklist](QA_RELEA
 - Sightings: Explore and My submissions, filters, owner edit/delete confirmation,
   caption/date, image and Results overlay. Identification shows only counts and
   numbered boxes. There are no approval tags, life-status votes or admin-review tab.
+- Map: first open requests foreground location and centers an interactive
+  OpenStreetMap view on one device fix. Recenter restores that fix; denied and
+  unavailable location states offer a retry. There is no background tracking,
+  report-location capture, feed pins or Local Star calculation in this milestone.
 - Leaderboard: existing weekly/monthly point records. Social votes do not change it.
 - Profile: identity/photo, display-name editing, existing field points and sign-out.
   Do not imply unimplemented badges, streaks or social features award points.
