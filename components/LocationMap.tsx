@@ -57,6 +57,9 @@ export function LocationMap({
           </View>
         )}
       </View>
+      <Text style={styles.providerNotice}>
+        OpenStreetMap receives the map center to render the map. LanternDie does not save your map-view location.
+      </Text>
     </View>
   );
 }
@@ -71,4 +74,5 @@ const styles = StyleSheet.create({
   mapFrame: { flex: 1, minHeight: 240, overflow: 'hidden', borderRadius: 12, backgroundColor: '#E8E8E8' },
   locationState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   locationMessage: { color: '#696969', fontSize: 14, lineHeight: 21, textAlign: 'center', marginTop: 12 },
+  providerNotice: { color: '#696969', fontSize: 10, lineHeight: 15, marginTop: 8 },
 });

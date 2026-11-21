@@ -35,7 +35,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "LanternDie uses your location to center the map when you open it."
+          "locationWhenInUsePermission": "LanternDie uses your location to center the OpenStreetMap map; only if you opt in will it share an approximate sighting pin."
         }
       ]
     ]

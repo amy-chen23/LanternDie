@@ -38,7 +38,7 @@ import Trophy from 'lucide-react-native/icons/trophy';
 import UserRound from 'lucide-react-native/icons/user-round';
 import { deleteOwnedReport } from './lib/report-deletion';
 import { loadReports, loadPublicReports, loadReportEngagement, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
-import { extractPhotoMetadata, type ReportLocationMetadata } from './lib/photo-metadata';
+import { approximateCoordinates, type ApproximateCoordinates } from './lib/approximate-location';
 import { matchesSubmissionFilter, type SubmissionFilter } from './lib/submission-filters';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { loadLeaderboard, type LeaderboardEntry, type LeaderboardPeriod } from './lib/leaderboard';
@@ -50,6 +50,7 @@ import { MemberProfile } from './components/MemberProfile';
 import { FieldPoints } from './components/FieldPoints';
 import { FriendsPanel } from './components/Friends';
 import { LocationMap } from './components/LocationMap';
+import { DeviceMap } from './components/DeviceMap';
 import { useDeviceLocation } from './hooks/useDeviceLocation';
 import type { MemberIdentity } from './lib/friends';
 import { SightingBody, ReportVoteControls } from './components/SightingTile';
@@ -130,7 +131,8 @@ export default function App() {
   const [editingDetails, setEditingDetails] = useState<ReportDetails>(newReportDetails);
   const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [uploadError, setUploadError] = useState('');
-  const [uploadLocationMetadata, setUploadLocationMetadata] = useState<ReportLocationMetadata>(() => extractPhotoMetadata(null));
+  const [approximateMapLocation, setApproximateMapLocation] = useState<ApproximateCoordinates | null>(null);
+  const [shareApproximateLocation, setShareApproximateLocation] = useState(false);
   const [requestingUploadLocation, setRequestingUploadLocation] = useState(false);
   const [uploadLocationError, setUploadLocationError] = useState('');
   const pickingPhoto = useRef(false);
@@ -317,12 +319,13 @@ export default function App() {
         }
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.85, exif: true,
+        mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.85,
       });
       if (!result.canceled && selectionRequest === photoSelectionRequest.current) {
         setUploadError('');
         setPhotoAsset(result.assets[0]);
-        setUploadLocationMetadata(extractPhotoMetadata(result.assets[0].exif));
+        setApproximateMapLocation(null);
+        setShareApproximateLocation(false);
         setUploadLocationError('');
       }
     } catch (error) {
@@ -332,32 +335,29 @@ export default function App() {
     }
   }
 
-  async function useCurrentLocationForReport() {
+  async function setApproximateLocationSharing(share: boolean) {
+    if (!share) {
+      setShareApproximateLocation(false);
+      setApproximateMapLocation(null);
+      setUploadLocationError('');
+      return;
+    }
     if (!photoAsset || previewMode || uploadInFlight.current || requestingUploadLocation) return;
     setRequestingUploadLocation(true);
     setUploadLocationError('');
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== Location.PermissionStatus.GRANTED) {
-        setUploadLocationError('Location permission was denied. You can still submit without device location.');
+        setUploadLocationError('Location permission was denied. This report can still be submitted without a map pin.');
         return;
       }
       const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const capturedAt = new Date(fix.timestamp);
-      if (!Number.isFinite(fix.timestamp) || Number.isNaN(capturedAt.getTime())) {
-        throw new Error('The device returned an invalid location timestamp.');
-      }
-      setUploadLocationMetadata(current => ({
-        ...current,
-        latitude: fix.coords.latitude,
-        longitude: fix.coords.longitude,
-        source: 'device',
-        deviceLocationCapturedAt: capturedAt.toISOString(),
-        accuracyMeters: fix.coords.accuracy,
-        shareApproximate: false,
-      }));
+      setApproximateMapLocation(approximateCoordinates(fix.coords.latitude, fix.coords.longitude));
+      setShareApproximateLocation(true);
     } catch (error) {
-      setUploadLocationError(error instanceof Error ? `Could not get device location: ${error.message}` : 'Could not get device location.');
+      setShareApproximateLocation(false);
+      setApproximateMapLocation(null);
+      setUploadLocationError(error instanceof Error ? `Could not prepare an approximate map pin: ${error.message}` : 'Could not prepare an approximate map pin.');
     } finally {
       setRequestingUploadLocation(false);
     }
@@ -370,11 +370,12 @@ export default function App() {
     setUploadError('');
     try {
       const userId = session.user.id;
-      await submitReport(userId, photoAsset, reportDetails, uploadLocationMetadata);
+      await submitReport(userId, photoAsset, reportDetails, shareApproximateLocation ? approximateMapLocation : null);
       if (activeUserId.current === userId) {
         setPhotoAsset(null);
         setReportDetails(newReportDetails());
-        setUploadLocationMetadata(extractPhotoMetadata(null));
+        setApproximateMapLocation(null);
+        setShareApproximateLocation(false);
         setUploadLocationError('');
         // The database already enqueued detection. No inference runs on this device.
         openMySubmissions();
@@ -394,7 +395,8 @@ export default function App() {
     pickingPhoto.current = false;
     setPhotoAsset(null);
     setReportDetails(newReportDetails());
-    setUploadLocationMetadata(extractPhotoMetadata(null));
+    setApproximateMapLocation(null);
+    setShareApproximateLocation(false);
     setUploadLocationError('');
     setUploadError('');
   }
@@ -530,7 +532,8 @@ export default function App() {
     setUploadError('');
     setPreviewMode(false);
     setPhotoAsset(null);
-    setUploadLocationMetadata(extractPhotoMetadata(null));
+    setApproximateMapLocation(null);
+    setShareApproximateLocation(false);
     setUploadLocationError('');
     setReportDetails(newReportDetails());
     setEditingReportId(null);
@@ -637,11 +640,11 @@ export default function App() {
         <BottomNavigation activeScreen={screen} onSelect={setScreen} onAddPhoto={choosePhoto} />
         {photoAsset ? <ReportUploadDialog
           previewMode={previewMode} photoUri={photoAsset.uri} reportDetails={reportDetails}
-          locationMetadata={uploadLocationMetadata} locationError={uploadLocationError}
+          approximateLocation={approximateMapLocation} shareApproximateLocation={shareApproximateLocation}
+          locationError={uploadLocationError}
           requestingLocation={requestingUploadLocation}
           onChangeReportDetails={setReportDetails} reportError={uploadError} savingReport={savingReport}
-          onUseCurrentLocation={useCurrentLocationForReport}
-          onToggleShareApproximate={shareApproximate => setUploadLocationMetadata(current => ({ ...current, shareApproximate }))}
+          onToggleShareApproximate={setApproximateLocationSharing}
           onChoosePhoto={choosePhoto} onSubmitReport={saveReport} onCancelReportUpload={cancelReportUpload}
         /> : null}
       </View>
@@ -864,14 +867,15 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
 }
 
 function ReportUploadDialog({
-  previewMode, photoUri, reportDetails, locationMetadata, locationError, requestingLocation,
-  onChangeReportDetails, reportError, savingReport, onUseCurrentLocation, onToggleShareApproximate,
+  previewMode, photoUri, reportDetails, approximateLocation, shareApproximateLocation, locationError, requestingLocation,
+  onChangeReportDetails, reportError, savingReport, onToggleShareApproximate,
   onChoosePhoto, onSubmitReport, onCancelReportUpload,
 }: {
   previewMode: boolean; photoUri: string; reportDetails: ReportDetails;
-  locationMetadata: ReportLocationMetadata; locationError: string; requestingLocation: boolean;
+  approximateLocation: ApproximateCoordinates | null; shareApproximateLocation: boolean;
+  locationError: string; requestingLocation: boolean;
   onChangeReportDetails: (details: ReportDetails) => void; reportError: string; savingReport: boolean;
-  onUseCurrentLocation: () => void; onToggleShareApproximate: (share: boolean) => void;
+  onToggleShareApproximate: (share: boolean) => void;
   onChoosePhoto: () => void; onSubmitReport: () => void; onCancelReportUpload: () => void;
 }) {
   useEffect(() => {
@@ -919,39 +923,32 @@ function ReportUploadDialog({
               {!previewMode ? <>
                 <ReportFields details={reportDetails} onChange={onChangeReportDetails} />
                 <View style={styles.uploadLocationPanel}>
-                  <Text style={styles.uploadLocationTitle}>PHOTO LOCATION</Text>
-                  {locationMetadata.photoTakenAtLocal ? <Text style={styles.uploadLocationCopy}>
-                    Photo capture time: {locationMetadata.photoTakenAtLocal.replace('T', ' ')} (camera local time; no timezone)
-                  </Text> : <Text style={styles.uploadLocationCopy}>No photo capture time found in metadata.</Text>}
-                  {locationMetadata.source === 'photo_exif' ? <Text style={styles.uploadLocationCopy}>
-                    GPS was found in the photo metadata. Its exact coordinates will be stored privately.
-                  </Text> : locationMetadata.source === 'device' ? <Text style={styles.uploadLocationCopy}>
-                    Current device location added{locationMetadata.accuracyMeters === null ? '.' : ` (accuracy ±${Math.round(locationMetadata.accuracyMeters)} m).`} Exact coordinates will be stored privately.
-                  </Text> : <>
-                    <Text style={styles.uploadLocationCopy}>
-                      No photo GPS was found. You can explicitly add the device&apos;s current location; it may differ from where the photo was taken.
-                    </Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={requestingLocation || savingReport}
-                      onPress={onUseCurrentLocation}
-                      style={({ pressed }) => [styles.uploadLocationButton, pressed && styles.pressed, (requestingLocation || savingReport) && styles.disabled]}
-                    >
-                      {requestingLocation ? <><ActivityIndicator color={palette.red} /><Text style={styles.uploadLocationButtonText}>Getting location…</Text></>
-                        : <Text style={styles.uploadLocationButtonText}>Use my current location</Text>}
-                    </Pressable>
-                  </>}
-                  {locationMetadata.source ? <View style={styles.locationShareRow}>
+                  <View style={styles.locationShareRow}>
                     <View style={styles.locationShareCopy}>
-                      <Text style={styles.uploadLocationTitle}>Allow approximate public map sharing</Text>
-                      <Text style={styles.uploadLocationCopy}>Off by default. If enabled, this report may appear as an approximate marker when map pins are available.</Text>
+                      <Text style={styles.uploadLocationTitle}>Share approximate location on the community map</Text>
+                      <Text style={styles.uploadLocationCopy}>
+                        Off by default. If enabled, we use your current device location and round it to about 1.1 km. Photo location metadata is not read or shared. You can post without a pin.
+                      </Text>
                     </View>
                     <Switch
-                      accessibilityLabel="Allow approximate public map sharing"
-                      value={locationMetadata.shareApproximate}
+                      accessibilityLabel="Share approximate location on the community map"
+                      disabled={requestingLocation || savingReport}
+                      value={shareApproximateLocation}
                       onValueChange={onToggleShareApproximate}
                     />
+                  </View>
+                  {requestingLocation ? <View style={styles.locationLoading}>
+                    <ActivityIndicator color={palette.red} />
+                    <Text style={styles.uploadLocationCopy}>Getting a location fix for your approximate pin…</Text>
                   </View> : null}
+                  {shareApproximateLocation && approximateLocation ? <>
+                    <Text style={styles.uploadLocationCopy}>
+                      Preview: only this rounded location will be shared with the community map.
+                    </Text>
+                    <View style={styles.locationPreviewMap}>
+                      <DeviceMap coordinate={approximateLocation} recenterKey={0} title="Approximate public map pin preview" />
+                    </View>
+                  </> : null}
                   {locationError ? <Text accessibilityRole="alert" style={styles.locationError}>{locationError}</Text> : null}
                 </View>
               </> : null}
@@ -977,7 +974,7 @@ function ReportUploadDialog({
             <Text style={styles.privacyGlyph}>i</Text>
             <Text style={styles.privacyText}>{previewMode
               ? 'This preview stays on your device; no location metadata is saved.'
-              : 'Exact photo or device coordinates are stored privately. Public map sharing is off unless you opt in to an approximate marker.'}</Text>
+              : 'Photo GPS metadata is not read and is removed when the photo is re-encoded for upload. Device location is requested only if you opt in to a rounded community map pin.'}</Text>
           </View>
 
         </ScrollView>
@@ -1752,10 +1749,10 @@ const styles = StyleSheet.create({
   uploadLocationPanel: { borderRadius: 12, padding: 12, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, marginBottom: 10 },
   uploadLocationTitle: { color: palette.ink, fontSize: 11, fontWeight: '800' },
   uploadLocationCopy: { color: palette.muted, fontSize: 11, lineHeight: 16, marginTop: 6 },
-  uploadLocationButton: { minHeight: 42, borderWidth: 1, borderColor: palette.red, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10 },
-  uploadLocationButtonText: { color: palette.red, fontSize: 12, fontWeight: '700' },
   locationShareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, borderTopColor: palette.line, marginTop: 12, paddingTop: 12 },
   locationShareCopy: { flex: 1 },
+  locationLoading: { alignItems: 'center', gap: 6, paddingVertical: 12 },
+  locationPreviewMap: { height: 150, overflow: 'hidden', borderRadius: 8, backgroundColor: '#E8E8E8', marginTop: 8 },
   locationError: { color: '#B4232A', fontSize: 11, lineHeight: 16, marginTop: 8 },
   reportInputLabel: { color: palette.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.7, marginTop: 10, marginBottom: 6 },
   reportInput: { borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, color: palette.ink, paddingHorizontal: 10, minHeight: 42, fontSize: 14 },

@@ -5,14 +5,16 @@ import { locationMapUrl } from '../lib/location-map-url';
 export function DeviceMap({
   coordinate,
   recenterKey,
+  title = 'Map centered on your location',
 }: {
   coordinate: DeviceCoordinates;
   recenterKey: number;
+  title?: string;
 }) {
   return (
     <iframe
       key={recenterKey}
-      title="Map centered on your location"
+      title={title}
       src={locationMapUrl(coordinate)}
       allowFullScreen
       style={styles.frame}

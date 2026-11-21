@@ -51,18 +51,19 @@ social incentives are explicitly separate. Do not edit applied migration 19 or
 bulk-apply the remaining draft migrations. Use the existing Vercel Git deployment
 path only after the source release is reviewed/approved.
 
-## Upload location metadata
+## Upload map locations
 
-The upload picker reads EXIF before image resizing. Valid EXIF coordinates and
-camera-local capture time are stored in `private.report_location_metadata`;
-the capture time has no timezone and does not replace the user-entered observation
-date. If EXIF GPS is absent, device location is requested only after the user taps
-the explicit fallback button. Exact coordinates remain private. Approximate public
-map sharing is off by default and the opt-in is stored per report; public map pins
-are not implemented yet. Preview mode does not request or save location metadata.
+The upload picker does not request or read EXIF. Upload photos are re-encoded as
+JPEG before upload, which removes embedded metadata. Map sharing is an explicit,
+per-report opt-in and off by default. Only after opt-in does the app request one
+foreground device location fix, round both coordinates to two decimal places
+(about 1.1 km at the equator), and show that rounded pin in a map preview. The
+exact device fix remains in memory only and is never sent to Supabase. The report
+can be submitted without a pin.
 
-Report creation and private metadata insertion use
-`submit_report_with_location_metadata` so they commit together. Apply the new
-location metadata migration before testing uploads against Supabase. Do not expose
-the private table through the API schema or add exact coordinates to public report
-queries.
+The `report_map_locations` table stores only rounded public pin coordinates;
+RLS restricts reads to visible community reports and writes occur only through
+`submit_report_with_approximate_location`. The migration removes the earlier
+private EXIF/device metadata table and RPC. Apply the migrations before testing
+uploads against Supabase. Map-pin storage is in place; rendering community pins
+on the main Map tab remains a separate UI task.
