@@ -616,7 +616,7 @@ export default function App() {
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen previewMode={previewMode} />
           ) : screen === 'map' ? (
-            <LocationMap {...deviceLocation} />
+            <LocationMap {...deviceLocation} viewerId={session?.user.id ?? null} />
           ) : (
             <ProfileScreen
               key={session?.user.id ?? 'preview'}

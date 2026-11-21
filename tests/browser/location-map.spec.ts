@@ -10,7 +10,11 @@ const user = {
   user_metadata: { display_name: 'Map QA' }, app_metadata: {}, created_at: '2026-01-01T00:00:00Z',
 };
 
-async function openApp(page: Page, context: BrowserContext) {
+async function openApp(
+  page: Page,
+  context: BrowserContext,
+  mapLocations: Array<{ latitude: number; longitude: number }> = [],
+) {
   if (api) {
     const projectRef = new URL(api).hostname.split('.')[0];
     const payload = Buffer.from(JSON.stringify({ sub: userId, exp: 4102444800, role: 'authenticated' })).toString('base64url');
@@ -24,10 +28,13 @@ async function openApp(page: Page, context: BrowserContext) {
         user,
       }));
     }, { projectRef, user, payload });
-    await page.route(`${api}/**`, route => route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify(route.request().url().endsWith('/auth/v1/user') ? user : []),
-    }));
+    await page.route(`${api}/**`, route => {
+      const requestUrl = route.request().url();
+      const response = requestUrl.endsWith('/auth/v1/user') ? user
+        : requestUrl.includes('/rest/v1/report_map_locations') ? mapLocations
+          : [];
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(response) });
+    });
     await page.goto('/');
   } else {
     await page.goto('/');
@@ -52,13 +59,29 @@ test('Map follows Sightings and centers/recenters the web map from device locati
   await expect(mapTab).toHaveAttribute('aria-selected', 'true');
   const map = page.getByTitle('Map centered on your location');
   await expect(map).toBeVisible();
-  await expect(map).toHaveAttribute('src', /marker=37\.7749%2C-122\.4194/);
+  await expect(map).toHaveAttribute('srcdoc', /"center":\[37\.7749,-122\.4194\]/);
 
   const originalMap = await map.elementHandle();
   if (!originalMap) throw new Error('The map frame did not render.');
   await page.getByRole('button', { name: 'Recenter map' }).click();
   await expect.poll(() => originalMap.evaluate(frame => frame.isConnected)).toBe(false);
-  await expect(map).toHaveAttribute('src', /marker=37\.7749%2C-122\.4194/);
+  await expect(map).toHaveAttribute('srcdoc', /"center":\[37\.7749,-122\.4194\]/);
+});
+
+test('Map renders opted-in approximate community locations as separate pins', async ({ page, context }) => {
+  test.skip(!api, 'Supabase is not configured for the browser test.');
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 37.7749, longitude: -122.4194 });
+  await openApp(page, context, [{ latitude: 37.78, longitude: -122.41 }]);
+
+  const mapTab = page.getByRole('tab', { name: 'Map', exact: true });
+  await mapTab.click();
+  const map = page.getByTitle('Map centered on your location');
+  await expect(map).toHaveAttribute('srcdoc', /"communityPins":\[\[37\.78,-122\.41\]\]/);
+  await expect(page.getByText('1 approximate community photo location')).toBeVisible();
+  const mapContent = page.frameLocator('iframe[title="Map centered on your location"]');
+  await expect(mapContent.locator('#map')).toHaveAttribute('data-community-pin-count', '1');
+  await expect(mapContent.locator('canvas.leaflet-zoom-animated')).toBeVisible();
 });
 
 test('Map explains when location permission is denied and offers a retry', async ({ page, context }) => {

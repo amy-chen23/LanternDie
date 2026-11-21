@@ -65,5 +65,6 @@ The `report_map_locations` table stores only rounded public pin coordinates;
 RLS restricts reads to visible community reports and writes occur only through
 `submit_report_with_approximate_location`. The migration removes the earlier
 private EXIF/device metadata table and RPC. Apply the migrations before testing
-uploads against Supabase. Map-pin storage is in place; rendering community pins
-on the main Map tab remains a separate UI task.
+uploads against Supabase. The main Map tab loads authenticated community pins
+and renders them as red dots; the device location remains the blue center marker.
+Map tiles and Leaflet assets are supplied by OpenStreetMap and unpkg.
