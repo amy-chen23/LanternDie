@@ -12,6 +12,10 @@ Use [current rollout](IDENTIFICATION_SOCIAL_ONLY.md) and [QA checklist](QA_RELEA
 - Sightings: Explore and My submissions, filters, owner edit/delete confirmation,
   caption/date, image and Results overlay. Identification shows only counts and
   numbered boxes. There are no approval tags, life-status votes or admin-review tab.
+- Map: first open requests foreground location and centers an interactive
+  OpenStreetMap view on one device fix. Recenter restores that fix; denied and
+  unavailable location states offer a retry. There is no background tracking,
+  feed pins or Local Star calculation.
 - Leaderboard: existing weekly/monthly point records. Social votes do not change it.
 - Profile: identity/photo, display-name editing, existing field points and sign-out.
   Do not imply unimplemented badges, streaks or social features award points.
@@ -46,3 +50,21 @@ retry behavior, migrations and point semantics. New point allocation is unresolv
 social incentives are explicitly separate. Do not edit applied migration 19 or
 bulk-apply the remaining draft migrations. Use the existing Vercel Git deployment
 path only after the source release is reviewed/approved.
+
+## Upload map locations
+
+The upload picker does not request or read EXIF. Upload photos are re-encoded as
+JPEG before upload, which removes embedded metadata. Map sharing is an explicit,
+per-report opt-in and off by default. Only after opt-in does the app request one
+foreground device location fix, round both coordinates to two decimal places
+(about 1.1 km at the equator), and show that rounded pin in a map preview. The
+exact device fix remains in memory only and is never sent to Supabase. The report
+can be submitted without a pin.
+
+The `report_map_locations` table stores only rounded public pin coordinates;
+RLS restricts reads to visible community reports and writes occur only through
+`submit_report_with_approximate_location`. The migration removes the earlier
+private EXIF/device metadata table and RPC. Apply the migrations before testing
+uploads against Supabase. The main Map tab loads authenticated community pins
+and renders them as red dots; the device location remains the blue center marker.
+Map tiles and Leaflet assets are supplied by OpenStreetMap and unpkg.

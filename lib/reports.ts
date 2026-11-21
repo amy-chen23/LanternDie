@@ -8,6 +8,7 @@ import { communityFeedStatuses } from './community-feed';
 import { loadReportPhotoUrls } from './report-photo-urls';
 import type { ProcessingStatus, WorkflowStatus } from './report-processing';
 import type { Identification } from './identification';
+import type { ApproximateCoordinates } from './approximate-location';
 
 const bucket = 'report-photos';
 const maxBytes = 5 * 1024 * 1024;
@@ -128,7 +129,12 @@ export async function loadReportEngagement(reportId: string): Promise<Pick<Repor
   return data;
 }
 
-export async function submitReport(userId: string, asset: ImagePickerAsset, details: ReportDetails): Promise<string> {
+export async function submitReport(
+  userId: string,
+  asset: ImagePickerAsset,
+  details: ReportDetails,
+  approximateLocation: ApproximateCoordinates | null,
+): Promise<string> {
   if (!supabase) throw new Error('Supabase is not configured.');
   const cleaned = cleanDetails(details);
   const longestEdge = Math.max(asset.width, asset.height);
@@ -146,13 +152,27 @@ export async function submitReport(userId: string, asset: ImagePickerAsset, deta
     contentType: 'image/jpeg', cacheControl: '0', upsert: false,
   });
   if (uploadError) throw uploadError;
-  const { data: report, error: reportError } = await supabase.from('reports')
-    .insert({ user_id: userId, photo_path: path, ...cleaned }).select('id').single();
-  if (reportError) {
-    await supabase.storage.from(bucket).remove([path]);
-    throw reportError;
+  const { data: reportId, error: reportError } = await supabase.rpc('submit_report_with_approximate_location', {
+    p_photo_path: path,
+    p_observed_on: cleaned.observed_on,
+    p_place_name: cleaned.place_name,
+    p_caption: cleaned.caption,
+    p_share_approximate: approximateLocation !== null,
+    p_latitude: approximateLocation?.latitude ?? null,
+    p_longitude: approximateLocation?.longitude ?? null,
+  });
+  if (reportError || typeof reportId !== 'string') {
+    const { error: cleanupError } = await supabase.storage.from(bucket).remove([path]);
+    if (reportError && cleanupError) {
+      throw new Error(`${reportError.message} The uploaded photo could not be cleaned up: ${cleanupError.message}`);
+    }
+    if (reportError) throw reportError;
+    if (cleanupError) {
+      throw new Error(`The report was not created because the server returned no report ID. The uploaded photo could not be cleaned up: ${cleanupError.message}`);
+    }
+    throw new Error('The report was not created because the server returned no report ID.');
   }
-  return report.id;
+  return reportId;
 }
 
 export async function updateReportDetails(reportId: string, details: ReportDetails): Promise<void> {

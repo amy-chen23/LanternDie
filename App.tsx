@@ -13,11 +13,13 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   View,
 } from 'react-native';
 import { Text, TextInput, useAppFonts } from './lib/typography';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session } from '@supabase/supabase-js';
@@ -27,6 +29,7 @@ import CircleHelp from 'lucide-react-native/icons/circle-question-mark';
 import Ellipsis from 'lucide-react-native/icons/ellipsis';
 import Plus from 'lucide-react-native/icons/plus';
 import ListFilter from 'lucide-react-native/icons/list-filter';
+import MapPin from 'lucide-react-native/icons/map-pin';
 import Pencil from 'lucide-react-native/icons/pencil';
 import Search from 'lucide-react-native/icons/search';
 import RotateCw from 'lucide-react-native/icons/rotate-cw';
@@ -35,6 +38,7 @@ import Trophy from 'lucide-react-native/icons/trophy';
 import UserRound from 'lucide-react-native/icons/user-round';
 import { deleteOwnedReport } from './lib/report-deletion';
 import { loadReports, loadPublicReports, loadReportEngagement, setReportVote, submitReport, updateReportDetails, type Report, type ReportDetails } from './lib/reports';
+import { approximateCoordinates, type ApproximateCoordinates } from './lib/approximate-location';
 import { matchesSubmissionFilter, type SubmissionFilter } from './lib/submission-filters';
 import { loadProfilePhoto, saveProfilePhoto } from './lib/profile-photo';
 import { loadLeaderboard, type LeaderboardEntry, type LeaderboardPeriod } from './lib/leaderboard';
@@ -45,6 +49,9 @@ import { PageHeader } from './components/PageHeader';
 import { MemberProfile } from './components/MemberProfile';
 import { FieldPoints } from './components/FieldPoints';
 import { FriendsPanel } from './components/Friends';
+import { LocationMap } from './components/LocationMap';
+import { DeviceMap } from './components/DeviceMap';
+import { useDeviceLocation } from './hooks/useDeviceLocation';
 import type { MemberIdentity } from './lib/friends';
 import { SightingBody, ReportVoteControls } from './components/SightingTile';
 
@@ -62,7 +69,7 @@ const palette = {
   white: '#FFFFFF',
 };
 
-type Screen = 'community' | 'leaderboard' | 'profile';
+type Screen = 'community' | 'map' | 'leaderboard' | 'profile';
 type SightingsView = 'explore' | 'mine';
 type AuthMode = 'sign-in' | 'sign-up';
 const previewLeaderboardRankings: Record<LeaderboardPeriod, LeaderboardEntry[]> = {
@@ -114,6 +121,7 @@ export default function App() {
   const [previewMode, setPreviewMode] = useState(false);
   const [loadingSession, setLoadingSession] = useState(Boolean(supabase));
   const [screen, setScreen] = useState<Screen>('community');
+  const deviceLocation = useDeviceLocation(screen === 'map');
   const [memberProfile, setMemberProfile] = useState<MemberIdentity | null>(null);
   useEffect(() => { setMemberProfile(null); }, [session?.user.id, screen]);
   const activeScreen = useRef<Screen>(screen);
@@ -123,6 +131,10 @@ export default function App() {
   const [editingDetails, setEditingDetails] = useState<ReportDetails>(newReportDetails);
   const [photoAsset, setPhotoAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [uploadError, setUploadError] = useState('');
+  const [approximateMapLocation, setApproximateMapLocation] = useState<ApproximateCoordinates | null>(null);
+  const [shareApproximateLocation, setShareApproximateLocation] = useState(false);
+  const [requestingUploadLocation, setRequestingUploadLocation] = useState(false);
+  const [uploadLocationError, setUploadLocationError] = useState('');
   const pickingPhoto = useRef(false);
   const photoSelectionRequest = useRef(0);
   const uploadInFlight = useRef(false);
@@ -295,7 +307,7 @@ export default function App() {
   }
 
   async function choosePhoto() {
-    if (pickingPhoto.current || uploadInFlight.current) return;
+    if (pickingPhoto.current || uploadInFlight.current || requestingUploadLocation) return;
     pickingPhoto.current = true;
     const selectionRequest = ++photoSelectionRequest.current;
     try {
@@ -312,11 +324,42 @@ export default function App() {
       if (!result.canceled && selectionRequest === photoSelectionRequest.current) {
         setUploadError('');
         setPhotoAsset(result.assets[0]);
+        setApproximateMapLocation(null);
+        setShareApproximateLocation(false);
+        setUploadLocationError('');
       }
     } catch (error) {
       Alert.alert('Could not choose photo', error instanceof Error ? error.message : 'Please try again.');
     } finally {
       if (selectionRequest === photoSelectionRequest.current) pickingPhoto.current = false;
+    }
+  }
+
+  async function setApproximateLocationSharing(share: boolean) {
+    if (!share) {
+      setShareApproximateLocation(false);
+      setApproximateMapLocation(null);
+      setUploadLocationError('');
+      return;
+    }
+    if (!photoAsset || previewMode || uploadInFlight.current || requestingUploadLocation) return;
+    setRequestingUploadLocation(true);
+    setUploadLocationError('');
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== Location.PermissionStatus.GRANTED) {
+        setUploadLocationError('Location permission was denied. This report can still be submitted without a map pin.');
+        return;
+      }
+      const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setApproximateMapLocation(approximateCoordinates(fix.coords.latitude, fix.coords.longitude));
+      setShareApproximateLocation(true);
+    } catch (error) {
+      setShareApproximateLocation(false);
+      setApproximateMapLocation(null);
+      setUploadLocationError(error instanceof Error ? `Could not prepare an approximate map pin: ${error.message}` : 'Could not prepare an approximate map pin.');
+    } finally {
+      setRequestingUploadLocation(false);
     }
   }
 
@@ -327,10 +370,13 @@ export default function App() {
     setUploadError('');
     try {
       const userId = session.user.id;
-      await submitReport(userId, photoAsset, reportDetails);
+      await submitReport(userId, photoAsset, reportDetails, shareApproximateLocation ? approximateMapLocation : null);
       if (activeUserId.current === userId) {
         setPhotoAsset(null);
         setReportDetails(newReportDetails());
+        setApproximateMapLocation(null);
+        setShareApproximateLocation(false);
+        setUploadLocationError('');
         // The database already enqueued detection. No inference runs on this device.
         openMySubmissions();
         void refreshReports(userId, true);
@@ -344,11 +390,14 @@ export default function App() {
   }
 
   function cancelReportUpload() {
-    if (uploadInFlight.current) return;
+    if (uploadInFlight.current || requestingUploadLocation) return;
     photoSelectionRequest.current++;
     pickingPhoto.current = false;
     setPhotoAsset(null);
     setReportDetails(newReportDetails());
+    setApproximateMapLocation(null);
+    setShareApproximateLocation(false);
+    setUploadLocationError('');
     setUploadError('');
   }
 
@@ -483,6 +532,9 @@ export default function App() {
     setUploadError('');
     setPreviewMode(false);
     setPhotoAsset(null);
+    setApproximateMapLocation(null);
+    setShareApproximateLocation(false);
+    setUploadLocationError('');
     setReportDetails(newReportDetails());
     setEditingReportId(null);
     setReports([]);
@@ -563,6 +615,8 @@ export default function App() {
               onRefresh={refreshActiveSightings} onVote={(report, value) => void changeVote(report, value)} />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen previewMode={previewMode} />
+          ) : screen === 'map' ? (
+            <LocationMap {...deviceLocation} viewerId={session?.user.id ?? null} />
           ) : (
             <ProfileScreen
               key={session?.user.id ?? 'preview'}
@@ -586,7 +640,11 @@ export default function App() {
         <BottomNavigation activeScreen={screen} onSelect={setScreen} onAddPhoto={choosePhoto} />
         {photoAsset ? <ReportUploadDialog
           previewMode={previewMode} photoUri={photoAsset.uri} reportDetails={reportDetails}
+          approximateLocation={approximateMapLocation} shareApproximateLocation={shareApproximateLocation}
+          locationError={uploadLocationError}
+          requestingLocation={requestingUploadLocation}
           onChangeReportDetails={setReportDetails} reportError={uploadError} savingReport={savingReport}
+          onToggleShareApproximate={setApproximateLocationSharing}
           onChoosePhoto={choosePhoto} onSubmitReport={saveReport} onCancelReportUpload={cancelReportUpload}
         /> : null}
       </View>
@@ -809,11 +867,15 @@ function AuthScreen({ onPreview }: { onPreview: () => void }) {
 }
 
 function ReportUploadDialog({
-  previewMode, photoUri, reportDetails, onChangeReportDetails, reportError, savingReport,
+  previewMode, photoUri, reportDetails, approximateLocation, shareApproximateLocation, locationError, requestingLocation,
+  onChangeReportDetails, reportError, savingReport, onToggleShareApproximate,
   onChoosePhoto, onSubmitReport, onCancelReportUpload,
 }: {
   previewMode: boolean; photoUri: string; reportDetails: ReportDetails;
+  approximateLocation: ApproximateCoordinates | null; shareApproximateLocation: boolean;
+  locationError: string; requestingLocation: boolean;
   onChangeReportDetails: (details: ReportDetails) => void; reportError: string; savingReport: boolean;
+  onToggleShareApproximate: (share: boolean) => void;
   onChoosePhoto: () => void; onSubmitReport: () => void; onCancelReportUpload: () => void;
 }) {
   useEffect(() => {
@@ -838,7 +900,7 @@ function ReportUploadDialog({
 
           <Pressable
             accessibilityRole="button"
-            disabled={savingReport} onPress={onChoosePhoto}
+            disabled={savingReport || requestingLocation} onPress={onChoosePhoto}
             style={({ pressed }) => [styles.uploadButton, pressed && styles.pressed]}
           >
             <Image source={{ uri: photoUri }} style={styles.photoPreview} />
@@ -858,18 +920,49 @@ function ReportUploadDialog({
           ) : null}
           {photoUri ? (
             <>
-              {!previewMode ? <ReportFields details={reportDetails} onChange={onChangeReportDetails} /> : null}
+              {!previewMode ? <>
+                <ReportFields details={reportDetails} onChange={onChangeReportDetails} />
+                <View style={styles.uploadLocationPanel}>
+                  <View style={styles.locationShareRow}>
+                    <View style={styles.locationShareCopy}>
+                      <Text style={styles.uploadLocationTitle}>Share approximate location on the community map</Text>
+                      <Text style={styles.uploadLocationCopy}>
+                        Off by default. If enabled, we use your current device location and round it to about 1.1 km. Photo location metadata is not read or shared. You can post without a pin.
+                      </Text>
+                    </View>
+                    <Switch
+                      accessibilityLabel="Share approximate location on the community map"
+                      disabled={requestingLocation || savingReport}
+                      value={shareApproximateLocation}
+                      onValueChange={onToggleShareApproximate}
+                    />
+                  </View>
+                  {requestingLocation ? <View style={styles.locationLoading}>
+                    <ActivityIndicator color={palette.red} />
+                    <Text style={styles.uploadLocationCopy}>Getting a location fix for your approximate pin…</Text>
+                  </View> : null}
+                  {shareApproximateLocation && approximateLocation ? <>
+                    <Text style={styles.uploadLocationCopy}>
+                      Preview: only this rounded location will be shared with the community map.
+                    </Text>
+                    <View style={styles.locationPreviewMap}>
+                      <DeviceMap coordinate={approximateLocation} recenterKey={0} title="Approximate public map pin preview" />
+                    </View>
+                  </> : null}
+                  {locationError ? <Text accessibilityRole="alert" style={styles.locationError}>{locationError}</Text> : null}
+                </View>
+              </> : null}
               <View style={styles.reportUploadActions}>
                 {!previewMode ? <Pressable
                   accessibilityRole="button"
-                  disabled={savingReport}
+                  disabled={savingReport || requestingLocation}
                   onPress={onSubmitReport}
-                  style={[styles.primaryButton, styles.reportSubmitButton, savingReport && styles.disabled]}
+                  style={[styles.primaryButton, styles.reportSubmitButton, (savingReport || requestingLocation) && styles.disabled]}
                 >
                   {savingReport ? <><ActivityIndicator color={palette.white} /><Text style={styles.primaryButtonText}>Uploading…</Text></> : <Text style={styles.primaryButtonText}>Submit report</Text>}
                 </Pressable> : null}
-                <Pressable accessibilityRole="button" accessibilityLabel="Cancel report upload" disabled={savingReport}
-                  onPress={onCancelReportUpload} style={[styles.cancelUploadButton, previewMode && styles.cancelUploadButtonFull, savingReport && styles.disabled]}>
+                <Pressable accessibilityRole="button" accessibilityLabel="Cancel report upload" disabled={savingReport || requestingLocation}
+                  onPress={onCancelReportUpload} style={[styles.cancelUploadButton, previewMode && styles.cancelUploadButtonFull, (savingReport || requestingLocation) && styles.disabled]}>
                   <Text style={styles.cancelUploadText}>Cancel</Text>
                 </Pressable>
               </View>
@@ -879,7 +972,9 @@ function ReportUploadDialog({
 
           <View style={styles.privacyNote}>
             <Text style={styles.privacyGlyph}>i</Text>
-            <Text style={styles.privacyText}>Location is optional place text. Device GPS is not collected.</Text>
+            <Text style={styles.privacyText}>{previewMode
+              ? 'This preview stays on your device; no location metadata is saved.'
+              : 'Photo GPS metadata is not read and is removed when the photo is re-encoded for upload. Device location is requested only if you opt in to a rounded community map pin.'}</Text>
           </View>
 
         </ScrollView>
@@ -1342,7 +1437,10 @@ function BottomNavigation({ activeScreen, onSelect, onAddPhoto }: {
     </Pressable>;
   };
   return <View style={styles.tabBar}>
-    {tab('community', 'Sightings', Search)}
+    <View style={styles.navTabGroup}>
+      {tab('community', 'Sightings', Search)}
+      {tab('map', 'Map', MapPin)}
+    </View>
     <View style={styles.addPhotoSlot}>
       <Pressable accessibilityRole="button" accessibilityLabel="Add a photo" onPress={onAddPhoto}
         style={({ pressed }) => [styles.addPhotoButton, pressed && styles.pressed]}>
@@ -1648,6 +1746,14 @@ const styles = StyleSheet.create({
   deleteActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 8 },
   editPanel: { padding: 12 },
   reportFields: { borderRadius: 16, padding: 12, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, marginVertical: 10 },
+  uploadLocationPanel: { borderRadius: 12, padding: 12, backgroundColor: palette.paper, borderWidth: 1, borderColor: palette.line, marginBottom: 10 },
+  uploadLocationTitle: { color: palette.ink, fontSize: 11, fontWeight: '800' },
+  uploadLocationCopy: { color: palette.muted, fontSize: 11, lineHeight: 16, marginTop: 6 },
+  locationShareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, borderTopColor: palette.line, marginTop: 12, paddingTop: 12 },
+  locationShareCopy: { flex: 1 },
+  locationLoading: { alignItems: 'center', gap: 6, paddingVertical: 12 },
+  locationPreviewMap: { height: 150, overflow: 'hidden', borderRadius: 8, backgroundColor: '#E8E8E8', marginTop: 8 },
+  locationError: { color: '#B4232A', fontSize: 11, lineHeight: 16, marginTop: 8 },
   reportInputLabel: { color: palette.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.7, marginTop: 10, marginBottom: 6 },
   reportInput: { borderWidth: 1, borderColor: palette.line, backgroundColor: palette.white, color: palette.ink, paddingHorizontal: 10, minHeight: 42, fontSize: 14 },
   captionInput: { minHeight: 72, paddingTop: 10, textAlignVertical: 'top' },

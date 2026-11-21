@@ -77,6 +77,8 @@ for (const width of [390, 1440]) {
 }
 
 test('upload errors retain the draft, and a successful retry opens My submissions', async ({ page }) => {
+  await page.context().grantPermissions(['geolocation'], { origin: 'http://127.0.0.1:4173' });
+  await page.context().setGeolocation({ latitude: 37.5017, longitude: -122.254, accuracy: 18 });
   await openApp(page);
   let uploads = 0;
   let releaseUpload: () => void = () => {};
@@ -87,14 +89,21 @@ test('upload errors retain the draft, and a successful retry opens My submission
     await pending;
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ Key: 'fixture.jpg' }) });
   });
-  await page.route(`${api}/rest/v1/reports?**`, route => {
-    if (route.request().method() === 'POST') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: '11111111-1111-1111-1111-111111111111' }) });
-    return route.fallback();
+  const submittedLocations: Record<string, unknown>[] = [];
+  await page.route(`${api}/rest/v1/rpc/submit_report_with_approximate_location`, route => {
+    submittedLocations.push(route.request().postDataJSON());
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify('11111111-1111-1111-1111-111111111111') });
   });
   const picker = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Add a photo', exact: true }).click();
   await (await picker).setFiles(photo);
   const dialog = page.getByRole('dialog', { name: 'Log a lanternfly' });
+  const approximateSharingSwitch = dialog.getByRole('switch', { name: 'Share approximate location on the community map' });
+  await expect(approximateSharingSwitch).not.toBeChecked();
+  await approximateSharingSwitch.check();
+  await expect(approximateSharingSwitch).toBeChecked();
+  await expect(page.getByTitle('Approximate public map pin preview')).toBeVisible();
+  await expect(page.getByText(/rounded location will be shared/)).toBeVisible();
   await dialog.getByRole('textbox', { name: 'Report caption' }).fill('Keep my draft');
   await dialog.getByRole('button', { name: 'Submit report' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Please retry this upload');
@@ -107,5 +116,35 @@ test('upload errors retain the draft, and a successful retry opens My submission
   releaseUpload();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('tab', { name: 'My submissions', exact: true })).toHaveAttribute('aria-selected', 'true');
+  const submittedLocation = submittedLocations[submittedLocations.length - 1];
+  expect(submittedLocation).toMatchObject({
+    p_latitude: 37.5,
+    p_longitude: -122.25,
+    p_share_approximate: true,
+  });
   expect(uploads).toBe(2);
+});
+
+test('a report can be submitted without requesting location or sharing a map pin', async ({ page }) => {
+  await openApp(page);
+  const submittedLocations: Record<string, unknown>[] = [];
+  await page.route(`${api}/storage/v1/object/report-photos/**`, route =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ Key: 'fixture.jpg' }) }));
+  await page.route(`${api}/rest/v1/rpc/submit_report_with_approximate_location`, route => {
+    submittedLocations.push(route.request().postDataJSON());
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify('22222222-2222-2222-2222-222222222222') });
+  });
+  const picker = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Add a photo', exact: true }).click();
+  await (await picker).setFiles(photo);
+  const dialog = page.getByRole('dialog', { name: 'Log a lanternfly' });
+  await expect(dialog.getByRole('switch', { name: 'Share approximate location on the community map' })).not.toBeChecked();
+  await dialog.getByRole('button', { name: 'Submit report' }).click();
+  await expect(dialog).toHaveCount(0);
+  const submittedLocation = submittedLocations[submittedLocations.length - 1];
+  expect(submittedLocation).toMatchObject({
+    p_share_approximate: false,
+    p_latitude: null,
+    p_longitude: null,
+  });
 });
